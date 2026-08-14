@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 
 import { app } from '#app'
+import { closeDatabase } from '#db/client'
 import { env } from '#env'
 import { logger } from '#lib/logger'
 
@@ -23,7 +24,9 @@ function shutdown(signal: NodeJS.Signals): void {
       logger.error({ err }, 'failed to close server')
       process.exitCode = 1
     }
-    process.exit()
+    void closeDatabase()
+      .catch((closeErr: unknown) => logger.error({ err: closeErr }, 'failed to close the pool'))
+      .finally(() => process.exit())
   })
   // Do not hang forever on a connection that refuses to let go.
   setTimeout(() => process.exit(1), 10_000).unref()
