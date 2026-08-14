@@ -3,6 +3,7 @@ import type { Logger } from 'pino'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger as rootLogger } from '#lib/logger'
+import type { LiveSession } from '#platform/session.repo'
 
 /**
  * The values middleware hands to handlers through `c.get(...)`.
@@ -15,6 +16,8 @@ import { logger as rootLogger } from '#lib/logger'
 export type AppVariables = {
   requestId: string
   logger: Logger
+  /** Set by `sessionContext()` when the cookie points at a session that is still alive. */
+  session?: LiveSession
 }
 
 export type AppBindings = {

@@ -5,6 +5,8 @@ import { secureHeaders } from 'hono/secure-headers'
 import { env } from '#env'
 import { errorHandler, notFoundHandler } from '#middleware/error'
 import { requestContext, type AppBindings } from '#middleware/request-context'
+import { sessionContext } from '#middleware/session'
+import { authRoutes } from '#modules/auth/auth.routes'
 import { healthRoutes } from '#modules/health/health.routes'
 
 /**
@@ -37,9 +39,14 @@ base.use(
   }),
 )
 
+// Mounted globally and deliberately permissive: it reads the cookie if there is one and
+// says nothing if there is not. Health checks and invitation links carry no session, and
+// both have to keep working.
+base.use('*', sessionContext())
+
 base.onError(errorHandler)
 base.notFound(notFoundHandler)
 
-export const app = base.route('/health', healthRoutes)
+export const app = base.route('/health', healthRoutes).route('/auth', authRoutes)
 
 export type AppType = typeof app
