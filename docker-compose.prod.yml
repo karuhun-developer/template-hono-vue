@@ -1,0 +1,23 @@
+# Production overlay. Note what is missing: no published ports. In production the API
+# reaches Postgres over the compose network, and nothing else should be able to.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# There is no application image here. Shipping a Dockerfile you have not deployed with
+# is how a template hands you a broken build on day one — add yours when you know how
+# this project actually deploys.
+
+services:
+  postgres:
+    restart: unless-stopped
+    # Tune for the box you actually run on; these are sane defaults for ~2GB of RAM.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - max_connections=100
+      - -c
+      - log_min_duration_statement=1000

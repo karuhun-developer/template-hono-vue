@@ -1,0 +1,16 @@
+# Development overlay: publish the port to the host so `pnpm dev`, drizzle-kit and a
+# host psql can connect. The port is deliberately non-standard (7332) because a
+# development machine usually already runs Postgres on 5432.
+
+services:
+  postgres:
+    ports:
+      - '${POSTGRES_PORT:-7332}:5432'
+    # Log every statement slower than 200ms — enough to catch a missing index early
+    # without drowning the log in trivial SELECTs.
+    command:
+      - postgres
+      - -c
+      - log_min_duration_statement=200
+      - -c
+      - log_line_prefix=%m [%p] %q%u@%d
