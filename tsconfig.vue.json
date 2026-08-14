@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "jsx": "preserve",
+    "jsxImportSource": "vue",
+    "noEmit": true,
+
+    // `exactOptionalPropertyTypes` is disabled in the Vue layer ONLY.
+    // Vue's runtime always hands `undefined` to an optional prop that was not
+    // passed, while libraries such as reka-ui declare them as `as?: AsTag`
+    // (without `| undefined`). Forwarding any prop then fails to compile — not
+    // because the code is wrong, but because the two prop models disagree.
+    // The flag stays on in `tsconfig.node.json` and `tsconfig.lib.json`, where
+    // it earns its keep: the API and the shared contract.
+    "exactOptionalPropertyTypes": false
+  }
+}
