@@ -1,0 +1,14 @@
+/*
+ * Every token and the preflight come from @app/ui. This app defines no colours of its
+ * own — if something is missing, add the token in packages/ui rather than a one-off
+ * hex value here.
+ */
+@import '@app/ui/styles.css';
+
+/*
+ * Tailwind v4 scans from the file that imports it, so the sources have to be named
+ * explicitly: the class names live in this app, the component classes live in the
+ * package, and neither is found by scanning the other.
+ */
+@source "../index.html";
+@source "../src";

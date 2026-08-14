@@ -1,0 +1,33 @@
+{
+  "name": "@app/console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Back office console — signing in, users, roles and the audit log",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@app/contract": "workspace:*",
+    "@app/ui": "workspace:*",
+    "@lucide/vue": "^1.31.0",
+    "hono": "^4.9.0",
+    "pinia": "^4.0.0",
+    "vue": "^3.5.41",
+    "vue-router": "^5.2.0"
+  },
+  "devDependencies": {
+    "@app/api": "workspace:*",
+    "@tailwindcss/vite": "^4.3.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "tailwindcss": "^4.3.0",
+    "vite": "^8.2.0",
+    "vitest": "^4.1.0",
+    "vue-tsc": "^3.3.0"
+  }
+}
