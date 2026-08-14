@@ -1,0 +1,35 @@
+{
+  "name": "hono-vue-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A pnpm monorepo starter: Hono + Drizzle + PostgreSQL API, Vue 3 console, session auth, RBAC, and user management",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r test",
+    "check": "pnpm format:check && pnpm typecheck && pnpm lint && pnpm test",
+    "rename": "node scripts/rename.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^24.10.0",
+    "eslint": "^9.39.0",
+    "eslint-config-prettier": "^10.1.0",
+    "eslint-plugin-vue": "^10.5.0",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^4.1.0"
+  }
+}

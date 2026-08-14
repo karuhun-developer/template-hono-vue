@@ -1,0 +1,10 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# esbuild needs its postinstall to download the platform binary (used by Vite & Vitest).
+# vue-demi (transitive from reka-ui) uses postinstall to pick the Vue 2 vs Vue 3
+# entrypoint; without it the import resolves to the wrong shim.
+allowBuilds:
+  esbuild: true
+  vue-demi: true
