@@ -81,6 +81,7 @@ The administrator is seeded as **invited**, with no password. Sign in as the own
 - [Add multi-tenancy](docs/guides/add-multi-tenancy.md) — the complete recipe, with the source you would need, and what it costs.
 - [Rename the template](docs/guides/rename-template.md) — every string that carries the template's identity.
 - [Decisions](docs/decisions/) — why sessions rather than JWTs, why RPC types rather than OpenAPI, why single-tenant.
+- [Agent instructions](AGENTS.md) — the non-negotiables, for a coding agent or a new contributor. `CLAUDE.md` points here.
 - [Changelog](CHANGELOG.md) — keep this updated as you build on top of the template.
 
 ## What this template deliberately does not include

@@ -32,7 +32,7 @@ node scripts/rename.mjs --name acme-hq --title 'Acme HQ'
 
 ## What it edits
 
-Nine files, and nothing outside this list:
+At most nine files, and nothing outside this list:
 
 | File                 | What changes                                               |
 | -------------------- | ---------------------------------------------------------- |
@@ -49,6 +49,8 @@ Nine files, and nothing outside this list:
 It is a literal string replacement over a fixed list of paths. No globbing, no regex over the whole tree, nothing recursive. A rename script that walks `src/` is a rename script that renames something inside a string literal at three in the morning.
 
 `--dry-run` prints the same summary and writes nothing. Run it first.
+
+Running it twice is safe. Every replacement is anchored rather than a blind search, so a file that has already been renamed reports `already up to date` instead of being mangled a second time.
 
 ## What it deliberately leaves alone
 
@@ -98,6 +100,6 @@ make migrate && make seed
 ## Conventions
 
 - Rename before `pnpm install` and before the first `make up`.
-- Run `--dry-run` first. It costs a second and it shows you the nine files.
+- Run `--dry-run` first. It costs a second and it names every file it would touch.
 - Never extend the script to walk `src/`. If a new identity string appears, add its exact path to the list.
 - Delete the template-only sections of the README in the same commit as the rename, so the first commit of your project already reads like your project.

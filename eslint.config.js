@@ -92,5 +92,15 @@ export default ts.config(
     ...ts.configs.disableTypeChecked,
   },
 
+  {
+    // Command-line scripts. `no-console` exists because a stray log in a request path is a
+    // line nobody can query — but here the console *is* the interface, and these run before
+    // `pnpm install`, so there is no logger to reach for.
+    files: ['scripts/**/*.mjs'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+
   prettier,
 )
