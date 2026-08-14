@@ -6,6 +6,7 @@ import { env } from '#env'
 import { errorHandler, notFoundHandler } from '#middleware/error'
 import { requestContext, type AppBindings } from '#middleware/request-context'
 import { sessionContext } from '#middleware/session'
+import { auditRoutes } from '#modules/audit/audit.routes'
 import { authRoutes } from '#modules/auth/auth.routes'
 import { healthRoutes } from '#modules/health/health.routes'
 
@@ -47,6 +48,9 @@ base.use('*', sessionContext())
 base.onError(errorHandler)
 base.notFound(notFoundHandler)
 
-export const app = base.route('/health', healthRoutes).route('/auth', authRoutes)
+export const app = base
+  .route('/health', healthRoutes)
+  .route('/auth', authRoutes)
+  .route('/audit-logs', auditRoutes)
 
 export type AppType = typeof app

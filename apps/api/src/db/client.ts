@@ -38,6 +38,16 @@ pool.on('error', (err) => {
 
 export type Database = NodePgDatabase<typeof schema>
 
+/** The handle Drizzle hands to `db.transaction(async (tx) => …)`. */
+export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0]
+
+/**
+ * Either handle. Anything that may be called **inside** a transaction takes this rather
+ * than `Database`: writing the audit row through the module-level `db` while its change is
+ * still uncommitted produces a trail entry for something that then gets rolled back.
+ */
+export type DatabaseHandle = Database | Transaction
+
 export const db: Database = drizzle(pool, {
   schema,
   logger: env.LOG_LEVEL === 'trace',
