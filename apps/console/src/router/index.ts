@@ -46,6 +46,29 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/DashboardPage.vue'),
         meta: { title: 'Overview' },
       },
+      {
+        /**
+         * `meta.permission` is the same key the API's `requirePermission()` asks for on the
+         * matching endpoint. Keeping them equal is what stops a menu item from leading
+         * straight to a page full of 403s — it is not what makes the page safe.
+         */
+        path: 'users',
+        name: 'users',
+        component: () => import('@/pages/UsersPage.vue'),
+        meta: { title: 'Users', permission: 'user.read' },
+      },
+      {
+        path: 'roles',
+        name: 'roles',
+        component: () => import('@/pages/RolesPage.vue'),
+        meta: { title: 'Roles', permission: 'role.read' },
+      },
+      {
+        path: 'audit-log',
+        name: 'audit-log',
+        component: () => import('@/pages/AuditLogPage.vue'),
+        meta: { title: 'Audit log', permission: 'audit.read' },
+      },
     ],
   },
   {

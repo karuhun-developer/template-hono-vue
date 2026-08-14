@@ -1,5 +1,5 @@
 import type { PermissionKey } from '@app/contract'
-import { LayoutDashboard } from '@lucide/vue'
+import { LayoutDashboard, ScrollText, ShieldCheck, Users } from '@lucide/vue'
 import type { Component } from 'vue'
 
 /**
@@ -20,4 +20,9 @@ export type NavItem = {
   permission?: PermissionKey
 }
 
-export const NAV_ITEMS: readonly NavItem[] = [{ to: '/', label: 'Overview', icon: LayoutDashboard }]
+export const NAV_ITEMS: readonly NavItem[] = [
+  { to: '/', label: 'Overview', icon: LayoutDashboard },
+  { to: '/users', label: 'Users', icon: Users, permission: 'user.read' },
+  { to: '/roles', label: 'Roles', icon: ShieldCheck, permission: 'role.read' },
+  { to: '/audit-log', label: 'Audit log', icon: ScrollText, permission: 'audit.read' },
+]

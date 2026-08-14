@@ -39,6 +39,20 @@ export function visibleItems<T extends { permission?: PermissionKey }>(
   return items.filter((item) => hasPermission(state.permissions, item.permission))
 }
 
+/**
+ * The permissions a role carries that the caller does not hold.
+ *
+ * This is the client half of `removedBeyondReach` in `roles.service.ts`. When it comes back
+ * non-empty, the role is one the caller may **not** re-tick at all: the API refuses both
+ * directions — handing out a permission you lack, and quietly dropping one you lack — so
+ * the only save that could succeed is one that does not touch the permissions.
+ *
+ * Returning the keys rather than a boolean is what lets the matrix say *which* ones.
+ */
+export function beyondReach(held: readonly string[], granted: readonly string[]): string[] {
+  return held.filter((key) => !granted.includes(key))
+}
+
 // --- The navigation decision ------------------------------------------------
 
 export type NavigationState = {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { decideNavigation, safeRedirect, visibleItems } from '@/lib/access'
+import { beyondReach, decideNavigation, safeRedirect, visibleItems } from '@/lib/access'
 
 /**
  * The route guard is tested here rather than through an assembled router.
@@ -71,6 +71,26 @@ describe('safeRedirect', () => {
     ['nothing at all', undefined],
   ])('rejects %s', (_label, value) => {
     expect(safeRedirect(value)).toBe('/')
+  })
+})
+
+describe('beyondReach', () => {
+  const granted = ['user.read', 'user.invite', 'role.read', 'role.manage']
+
+  it('finds nothing when the role stays inside what the caller holds', () => {
+    expect(beyondReach(['user.read', 'role.read'], granted)).toEqual([])
+  })
+
+  it('names the permissions the caller cannot touch', () => {
+    // An admin opening the owner role: `audit.read` is why the whole matrix locks.
+    expect(beyondReach(['user.read', 'audit.read', 'user.disable'], granted)).toEqual([
+      'audit.read',
+      'user.disable',
+    ])
+  })
+
+  it('treats an empty role as within reach', () => {
+    expect(beyondReach([], granted)).toEqual([])
   })
 })
 
