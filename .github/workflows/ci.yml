@@ -1,0 +1,65 @@
+# The same gate as `make check`, run against a real Postgres.
+#
+# One job rather than four parallel ones. The whole thing takes a couple of minutes, and
+# splitting it means four checkouts and four `pnpm install`s — more wall-clock spent on
+# setup than saved on parallelism, and four places to notice a failure instead of one.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same branch cancels the run already in flight. Nobody reads the CI
+# result of a commit that has been replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: format · typecheck · lint · test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: app
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+        # Published on 7332, the same port as the development stack, so
+        # `apps/api/vitest.config.ts` needs no CI-only branch.
+        ports:
+          - 7332:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # `docker/postgres/init/01-databases.sql` only runs for the compose stack, so the
+      # test database is created by hand here.
+      - name: Create the test database
+        env:
+          PGPASSWORD: app
+        run: psql -h localhost -p 7332 -U app -d app -c 'CREATE DATABASE app_test OWNER app'
+
+      # Ordered by how fast they fail: formatting answers in seconds, the suite takes
+      # minutes. A misformatted file should not wait behind a database.
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test

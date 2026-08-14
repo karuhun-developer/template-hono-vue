@@ -1,0 +1,36 @@
+# Weekly updates, grouped so the inbox stays readable.
+#
+# Grouping matters more than it looks: ten separate patch PRs each cost a full CI run and
+# ten reviews, and every one of them is the same decision. One PR per ecosystem per week is
+# a decision somebody actually makes.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Patch and minor together: these are the ones `dependabot-auto-merge.yml` merges on
+      # its own once CI is green.
+      minor-and-patch:
+        update-types: [minor, patch]
+      # Majors arrive one PR each — they need a human to read the release notes.
+      major:
+        update-types: [major]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci

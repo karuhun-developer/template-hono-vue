@@ -1,0 +1,34 @@
+# Auto-merge Dependabot's patch and minor updates once CI passes.
+#
+# Majors are deliberately excluded: a major is a changelog to read, not a checkbox. And the
+# merge is queued rather than immediate — GitHub holds it until the required checks are
+# green, so this workflow never merges anything CI has not approved.
+#
+# Requires "Allow auto-merge" in the repository settings, and a branch protection rule
+# making the CI job required. Without the second one, auto-merge means merge immediately.
+name: Dependabot auto-merge
+
+on: pull_request_target
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Read what this PR actually updates
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Queue the merge
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
