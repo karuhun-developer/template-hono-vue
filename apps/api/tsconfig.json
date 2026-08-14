@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.node.json",
+  // Internal aliases come from the `imports` field in package.json (`#db/client`), not
+  // from `paths` here. The difference matters: `paths` is resolved relative to the
+  // tsconfig of whichever program is compiling, so the moment a Vue app pulls `AppType`
+  // out of this package, `@/env` starts being looked for under that app's `src`. Subpath
+  // imports always resolve against the nearest package.json, so they mean the same thing
+  // from every program — vue-tsc, vitest and tsx included.
+  "include": ["src/**/*.ts", "tests/**/*.ts", "drizzle.config.ts", "vitest.config.ts"]
+}
