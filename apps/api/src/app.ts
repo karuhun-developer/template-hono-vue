@@ -9,6 +9,8 @@ import { sessionContext } from '#middleware/session'
 import { auditRoutes } from '#modules/audit/audit.routes'
 import { authRoutes } from '#modules/auth/auth.routes'
 import { healthRoutes } from '#modules/health/health.routes'
+import { roleRoutes } from '#modules/roles/roles.routes'
+import { userRoutes } from '#modules/users/users.routes'
 
 /**
  * Route composition. This file is the **type contract** between the backend and every
@@ -51,6 +53,8 @@ base.notFound(notFoundHandler)
 export const app = base
   .route('/health', healthRoutes)
   .route('/auth', authRoutes)
+  .route('/users', userRoutes)
+  .route('/roles', roleRoutes)
   .route('/audit-logs', auditRoutes)
 
 export type AppType = typeof app
