@@ -4,17 +4,19 @@ import { unauthorized } from '#lib/errors'
 import { readSessionCookie } from '#lib/session-cookie'
 import { looksLikeToken } from '#lib/token'
 import type { AppBindings } from '#middleware/request-context'
+import { loadAccess, type AccessContext } from '#modules/rbac/rbac.repo'
 import { findLiveSession, touchSession, type LiveSession } from '#platform/session.repo'
 
 /**
- * The identity layer: cookie → session row → the person making the request.
+ * The identity layer: cookie → session row → the person making the request, and what they
+ * are allowed to do.
  *
  * Split into two middlewares that stack rather than one that does everything:
  *
  * - `sessionContext()` is mounted **globally**. It reads the cookie if there is one and
  *   stays quiet if there is not, so public endpoints — the invitation pages, health —
  *   keep working.
- * - `requireAuth()` turns away anyone without a session.
+ * - `requireAuth()` turns away anyone without a session, and loads their permissions.
  *
  * A route that forgot its guard is visible as a route that never calls `requireAuth()`,
  * and `currentUser(c)` will throw the moment it is reached rather than quietly handing
@@ -51,9 +53,18 @@ export const sessionContext = (): MiddlewareHandler<AppBindings> => {
   }
 }
 
+/**
+ * The permissions are loaded here rather than lazily inside each handler so that
+ * `requirePermission()` can stay synchronous and, more importantly, so that there is
+ * exactly one query per request no matter how many checks a route performs.
+ */
 export const requireAuth = (): MiddlewareHandler<AppBindings> => {
   return async (c, next) => {
-    if (!c.get('session')) throw unauthorized()
+    const session = c.get('session')
+    if (!session) throw unauthorized()
+
+    c.set('access', await loadAccess(session.user.id))
+
     await next()
   }
 }
@@ -75,4 +86,10 @@ export function currentSession(c: Context<AppBindings>): LiveSession {
 
 export function currentUser(c: Context<AppBindings>): LiveSession['user'] {
   return currentSession(c).user
+}
+
+export function currentAccess(c: Context<AppBindings>): AccessContext {
+  const access = c.get('access')
+  if (!access) throw new Error('currentAccess(): this route is missing requireAuth()')
+  return access
 }

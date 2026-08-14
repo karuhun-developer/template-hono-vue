@@ -8,6 +8,13 @@
       "when": 1786733715024,
       "tag": "0000_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786734149527,
+      "tag": "0001_rbac",
+      "breakpoints": true
     }
   ]
 }

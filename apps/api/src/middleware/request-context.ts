@@ -3,6 +3,7 @@ import type { Logger } from 'pino'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger as rootLogger } from '#lib/logger'
+import type { AccessContext } from '#modules/rbac/rbac.repo'
 import type { LiveSession } from '#platform/session.repo'
 
 /**
@@ -18,6 +19,8 @@ export type AppVariables = {
   logger: Logger
   /** Set by `sessionContext()` when the cookie points at a session that is still alive. */
   session?: LiveSession
+  /** Set by `requireAuth()`: what this user is allowed to do. */
+  access?: AccessContext
 }
 
 export type AppBindings = {

@@ -5,7 +5,7 @@ import { badRequest } from '#lib/errors'
 import { clientInfo } from '#lib/request-info'
 import { clearSessionCookie, readSessionCookie, setSessionCookie } from '#lib/session-cookie'
 import type { AppBindings } from '#middleware/request-context'
-import { currentUser, requireAuth } from '#middleware/session'
+import { currentAccess, currentUser, requireAuth } from '#middleware/session'
 import { acceptInviteBody, loginBody } from '#modules/auth/auth.schema'
 import {
   acceptInvitation,
@@ -14,6 +14,7 @@ import {
   previewInvite,
   type LoginResult,
 } from '#modules/auth/auth.service'
+import { allPermissions } from '#modules/rbac/rbac.repo'
 
 /**
  * The auth endpoints.
@@ -78,6 +79,7 @@ export const authRoutes = new Hono<AppBindings>()
 
     return c.json({
       user: { id: user.id, email: user.email, name: user.name },
+      permissions: allPermissions(currentAccess(c)),
     })
   })
   .post('/logout', async (c) => {
