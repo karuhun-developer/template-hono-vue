@@ -102,8 +102,8 @@ export type AuditLogRow = {
   subjectType: string
   subjectId: string | null
   subjectLabel: string | null
-  before: unknown
-  after: unknown
+  before: Record<string, unknown> | null
+  after: Record<string, unknown> | null
   reason: string | null
   createdAt: Date
 }

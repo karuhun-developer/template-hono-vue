@@ -52,9 +52,13 @@ export const auditLogs = pgTable(
      * Only the columns that changed, not the whole row. A full snapshot sounds safer and
      * is the opposite: `password_hash` and every other secret would land in the one table
      * people open most often when investigating something.
+     *
+     * `$type` narrows what is otherwise `unknown`. The column stays plain `jsonb` — this
+     * only tells TypeScript that an entry is an object of changed columns, which is what
+     * `recordAudit` writes and what the console needs in order to render it.
      */
-    before: jsonb('before'),
-    after: jsonb('after'),
+    before: jsonb('before').$type<Record<string, unknown>>(),
+    after: jsonb('after').$type<Record<string, unknown>>(),
 
     /** Why — the UI asks for it on the destructive actions. */
     reason: text('reason'),
