@@ -95,6 +95,15 @@ const envSchema = z
 
     SESSION_COOKIE_NAME: z.string().min(1).default('app_session'),
     SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+
+    /**
+     * The first account `make seed` creates. Read here rather than hard-coded in the
+     * seeder so that a fresh clone can be given a real address without editing source —
+     * and so the password of the very first account never has to be committed.
+     */
+    SEED_OWNER_EMAIL: z.email().default('owner@example.com'),
+    SEED_OWNER_NAME: z.string().trim().min(1).max(120).default('Owner'),
+    SEED_OWNER_PASSWORD: z.string().min(8).max(512).default('password123'),
   })
   .superRefine((config, ctx) => {
     if (config.NODE_ENV === 'production' && config.CORS_ORIGINS.includes('*')) {
