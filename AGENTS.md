@@ -10,7 +10,7 @@ Read this before writing code. It is short on purpose; the reasoning lives in `d
 
 1. **Never edit a file in `apps/api/drizzle/`.** Migrations are generated with `make generate name=<snake_case>` and are immutable once committed. A change goes in a new migration. Never run `drizzle-kit push`.
 2. **Never break the `.route()` chain in `apps/api/src/app.ts`.** `AppType` is the type of that chain's return value. A separate `app.route(...)` statement compiles, serves traffic, and silently drops the route from `AppType` — after which every frontend call to it stops being type-checked, with no error anywhere.
-3. **Never hand-write a response type in a frontend.** Derive it: `InferResponseType<typeof api.users.$get>['users'][number]`. A declared duplicate is a type that will be wrong and will not say so.
+3. **Never hand-write a response type in a frontend.** Derive it: `InferResponseType<typeof api.users.$get>['items'][number]`. A declared duplicate is a type that will be wrong and will not say so.
 4. **A permission check in a `.vue` file is never "done".** It is UX. The enforcement is `requirePermission()` in `apps/api`. If you added a guard to a route in the console, the endpoint behind it needs one too — and an integration test asserting **403**.
 5. **One error shape.** Throw the helpers in `apps/api/src/lib/errors.ts`; `middleware/error.ts` is the only place that turns an error into a response. Frontends branch on `code`, never on `message`. Do not introduce a second envelope.
 6. **English everywhere** — code, comments, error messages, docs, commit messages. Comments explain **why**, not what the next line does.

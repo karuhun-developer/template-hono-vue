@@ -33,7 +33,7 @@ export const api = hc<AppType>(import.meta.env.VITE_API_URL, {
 Response types are **derived**, never declared:
 
 ```ts
-export type User = InferResponseType<typeof api.users.$get>['users'][number]
+export type User = InferResponseType<typeof api.users.$get>['items'][number]
 ```
 
 Three things make this work, and each is load-bearing:

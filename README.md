@@ -54,9 +54,13 @@ Created by `make seed`, which refuses to run with `NODE_ENV=production`. Change 
 | Email               | Password      | Role          | Why it exists                                                                                     |
 | ------------------- | ------------- | ------------- | ------------------------------------------------------------------------------------------------- |
 | `owner@example.com` | `password123` | Owner         | Full access; new permissions reach it automatically                                               |
-| `admin@example.com` | — (invited)   | Administrator | Holds neither `user.disable` nor `audit.read`, so the grantable rule has something to demonstrate |
+| `admin@example.com` | `password123` | Administrator | Holds neither `user.disable` nor `audit.read`, so the grantable rule has something to demonstrate |
 
-The administrator is seeded as **invited**, with no password. Sign in as the owner, open **Users → Demo Administrator → Re-send invitation**, and follow the link — which is also the shortest tour of the invitation flow.
+Sign in as the administrator to see the grantable rule without setting anything up: those two permissions render disabled in the role matrix, and opening the **Owner** role gives a locked one.
+
+To see the invitation flow instead, invite a third account from **Users → Invite**. The invitation link is shown once, in a dialog, and never again — there is no email delivery in this template.
+
+Re-running `make seed` leaves existing accounts **completely alone**, password included, so trying out the invitation flow is not undone by the next seed.
 
 ## Commands
 
