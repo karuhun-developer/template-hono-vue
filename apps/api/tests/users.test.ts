@@ -53,11 +53,7 @@ beforeAll(async () => {
     'role.manage',
     'audit.read',
   ])
-  recruiterRoleId = await createRole(TAG, 'recruiter', [
-    'user.read',
-    'user.invite',
-    'user.update',
-  ])
+  recruiterRoleId = await createRole(TAG, 'recruiter', ['user.read', 'user.invite', 'user.update'])
   plainRoleId = await createRole(TAG, 'plain', ['user.read'])
 
   ownerId = await createUser(OWNER, { name: 'Owner', roleIds: [powerfulRoleId] })
