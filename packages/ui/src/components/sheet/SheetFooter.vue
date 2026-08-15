@@ -7,7 +7,7 @@ const props = defineProps<{ class?: HTMLAttributes['class'] }>()
 </script>
 
 <template>
-  <!-- pb-safe: tombol "Tambah — Rp 24.000" tidak boleh tertutup home indicator iPhone. -->
+  <!-- pb-safe: a footer button pinned to the bottom must clear the iPhone home indicator. -->
   <div
     data-slot="sheet-footer"
     :class="cn('mt-auto flex flex-col gap-2 border-t p-5 pb-safe', props.class)"
