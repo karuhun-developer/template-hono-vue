@@ -1,0 +1,23 @@
+<script setup lang="ts">
+import type { HTMLAttributes } from 'vue'
+
+import { cn } from '../../lib/utils'
+
+const props = defineProps<{ class?: HTMLAttributes['class'] }>()
+</script>
+
+<template>
+  <div
+    data-slot="sidebar-content"
+    :class="
+      cn(
+        'flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto',
+        // Overflow would otherwise clip the tooltips that replace the labels on the rail.
+        'group-data-[state=collapsed]:overflow-visible',
+        props.class,
+      )
+    "
+  >
+    <slot />
+  </div>
+</template>

@@ -1,0 +1,27 @@
+<script setup lang="ts">
+import type { HTMLAttributes } from 'vue'
+
+import { cn } from '../../lib/utils'
+
+/**
+ * Fades to zero height on the rail rather than being removed. Removing it would make the
+ * group's items jump upwards as the sidebar collapses; this way they slide.
+ */
+const props = defineProps<{ class?: HTMLAttributes['class'] }>()
+</script>
+
+<template>
+  <div
+    data-slot="sidebar-group-label"
+    :class="
+      cn(
+        'text-sidebar-foreground/60 flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium',
+        'transition-[margin,opacity] duration-200 ease-linear',
+        'group-data-[state=collapsed]:-mt-8 group-data-[state=collapsed]:opacity-0',
+        props.class,
+      )
+    "
+  >
+    <slot />
+  </div>
+</template>
