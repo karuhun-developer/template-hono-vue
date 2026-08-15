@@ -3,9 +3,37 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#ffffff" />
+    <!-- Follows the OS rather than the in-app override: browser chrome cannot read a class. -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#18181b" media="(prefers-color-scheme: dark)" />
     <meta name="description" content="Back office console — users, roles and the audit log." />
     <title>Console</title>
+
+    <script>
+      /*
+       * Applies the theme before the first paint.
+       *
+       * This has to be inline and it has to be here. Anything in the bundle runs after the
+       * document has already been painted once, so every reload in dark mode would flash
+       * white — briefly, but on every single navigation that reloads the page.
+       *
+       * The storage key is shared with `src/composables/useTheme.ts`. Two copies of one
+       * string is the price of running before any module does.
+       */
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('theme')
+          var dark =
+            stored === 'dark' ||
+            (stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+
+          document.documentElement.classList.toggle('dark', dark)
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+        } catch (error) {
+          // No storage, no theme. The default palette is light and renders fine.
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>
