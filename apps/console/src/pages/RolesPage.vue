@@ -1,7 +1,18 @@
 <script setup lang="ts">
-import { Badge, Button, Card, CardContent, Skeleton } from '@app/ui'
-import { Pencil, Plus, Trash2 } from '@lucide/vue'
-import { computed, onMounted, ref } from 'vue'
+import {
+  Badge,
+  Button,
+  DataTable,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  type DataTableColumn,
+  type DataTableSort,
+} from '@app/ui'
+import { Ellipsis, Pencil, Plus, Trash2 } from '@lucide/vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import FailureAlert from '@/components/FailureAlert.vue'
 import RoleFormDialog from '@/components/RoleFormDialog.vue'
@@ -16,23 +27,49 @@ import { useSessionStore } from '@/stores/session'
  * Built-in roles (`isSystem`) can be edited but not deleted, and neither can a role someone
  * still holds. Both refusals are deliberate: deleting a role takes access away from
  * everybody holding it, and that should never happen as a side effect of tidying up a list.
+ *
+ * The permission catalog is loaded once with the first page and kept, because it does not
+ * change between pages — it is the application's own list of what can be granted.
  */
 
 const session = useSessionStore()
 
 const roles = ref<RoleSummary[]>([])
 const catalog = ref<PermissionCatalog>({ groups: [], granted: [] })
+const total = ref(0)
 const loading = ref(true)
 const failure = ref<ApiFailure | null>(null)
+
+const sort = ref<DataTableSort>({ key: 'name', order: 'asc' })
+const page = ref(1)
+const perPage = ref(10)
 
 const formOpen = ref(false)
 const editing = ref<RoleSummary | null>(null)
 
 const canManage = computed(() => session.can('role.manage'))
 
+const COLUMNS: DataTableColumn[] = [
+  { key: 'name', header: 'Role', sortable: true, hideable: false },
+  { key: 'key', header: 'Key', sortable: true, class: 'w-56' },
+  { key: 'permissions', header: 'Permissions', class: 'w-32' },
+  { key: 'usedBy', header: 'Held by', sortable: true, class: 'w-28', align: 'end' },
+]
+
+const SORTABLE = ['name', 'key', 'usedBy'] as const
+type SortKey = (typeof SORTABLE)[number]
+
+/** A sort the API would refuse falls back to the default rather than 400ing the page. */
+const sortKey = computed<SortKey>(() => {
+  const key = sort.value?.key
+  return SORTABLE.includes(key as SortKey) ? (key as SortKey) : 'name'
+})
+
 onMounted(async () => {
   await load()
 })
+
+watch([sort, page, perPage], () => void load())
 
 async function load(): Promise<void> {
   loading.value = true
@@ -40,21 +77,33 @@ async function load(): Promise<void> {
 
   try {
     const [list, permissions] = await Promise.all([
-      api.roles.$get({ query: { perPage: '100' } }),
-      api.roles.permissions.$get(),
+      api.roles.$get({
+        query: {
+          page: String(page.value),
+          perPage: String(perPage.value),
+          sort: sortKey.value,
+          order: sort.value?.order ?? 'asc',
+        },
+      }),
+      // Asked for once. `catalog.groups` is fixed at build time, so re-fetching it on every
+      // page turn would be a request whose answer is already on screen.
+      catalog.value.groups.length === 0 ? api.roles.permissions.$get() : null,
     ])
 
     if (!list.ok) {
       failure.value = await readApiError(list)
       return
     }
-    if (!permissions.ok) {
+    if (permissions && !permissions.ok) {
       failure.value = await readApiError(permissions)
       return
     }
 
-    roles.value = (await list.json()).items
-    catalog.value = await permissions.json()
+    const body = await list.json()
+    roles.value = body.items
+    total.value = body.total
+
+    if (permissions) catalog.value = await permissions.json()
   } catch (error) {
     failure.value = networkFailure(error)
   } finally {
@@ -92,10 +141,10 @@ async function remove(role: RoleSummary): Promise<void> {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-3xl space-y-4">
+  <div class="space-y-5">
     <div class="flex items-start justify-between gap-3">
       <div>
-        <h1 class="text-xl font-semibold">Roles</h1>
+        <h2 class="text-2xl font-semibold tracking-tight">Roles</h2>
         <p class="text-muted-foreground text-sm">
           Sets of permissions. What somebody can do is the union of the roles they hold.
         </p>
@@ -109,50 +158,72 @@ async function remove(role: RoleSummary): Promise<void> {
 
     <FailureAlert :failure="failure" />
 
-    <div v-if="loading" class="space-y-2">
-      <Skeleton v-for="i in 3" :key="i" class="h-24 w-full rounded-2xl" />
-    </div>
-
-    <Card v-for="role in roles" v-else :key="role.id">
-      <CardContent class="space-y-3">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <p class="truncate font-medium">{{ role.name }}</p>
-            <p class="text-muted-foreground font-mono text-xs">{{ role.key }}</p>
+    <DataTable
+      v-model:sort="sort"
+      v-model:page="page"
+      v-model:per-page="perPage"
+      :columns="COLUMNS"
+      :rows="roles"
+      :loading="loading"
+      :total="total"
+      row-key="id"
+      storage-key="roles"
+      empty="No roles yet."
+    >
+      <template #cell:name="{ row }">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="truncate font-medium">{{ row.name }}</span>
+            <Badge v-if="row.isSystem" variant="secondary">Built-in</Badge>
           </div>
-          <Badge v-if="role.isSystem" variant="secondary">Built-in</Badge>
+          <p v-if="row.description" class="text-muted-foreground truncate text-xs">
+            {{ row.description }}
+          </p>
         </div>
+      </template>
 
-        <p v-if="role.description" class="text-muted-foreground text-sm">{{ role.description }}</p>
+      <template #cell:key="{ row }">
+        <code class="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">{{ row.key }}</code>
+      </template>
 
-        <div class="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs">
-          <span>{{ role.permissions.length }} permissions</span>
-          <span>held by {{ role.usedBy }}</span>
-        </div>
+      <template #cell:permissions="{ row }">
+        <span class="text-muted-foreground text-sm">{{ row.permissions.length }}</span>
+      </template>
 
-        <div v-if="canManage" class="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" @click="openEdit(role)">
-            <Pencil />
-            Edit
-          </Button>
+      <template #cell:usedBy="{ row }">
+        <span class="text-muted-foreground text-sm">{{ row.usedBy }}</span>
+      </template>
 
-          <!--
-            The delete button is hidden rather than disabled for a built-in role or one
-            still in use. A dead button that does not explain itself only invites people to
-            click it again.
-          -->
-          <Button
-            v-if="!role.isSystem && role.usedBy === 0"
-            variant="ghost"
-            size="sm"
-            @click="remove(role)"
-          >
-            <Trash2 />
-            Delete
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      <template v-if="canManage" #actions="{ row }">
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button variant="ghost" size="icon-sm" :aria-label="`Actions for ${row.name}`">
+              <Ellipsis />
+            </Button>
+          </DropdownMenuTrigger>
+
+          <DropdownMenuContent align="end" class="w-44">
+            <DropdownMenuItem @select="openEdit(row)">
+              <Pencil />
+              Edit
+            </DropdownMenuItem>
+
+            <!--
+              Delete is left out for a built-in role or one somebody still holds, rather
+              than shown greyed out. A dead control that does not explain itself only
+              invites people to click it again.
+            -->
+            <template v-if="!row.isSystem && row.usedBy === 0">
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" @select="remove(row)">
+                <Trash2 />
+                Delete
+              </DropdownMenuItem>
+            </template>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </template>
+    </DataTable>
 
     <RoleFormDialog v-model:open="formOpen" :role="editing" :catalog="catalog" @saved="load" />
   </div>
