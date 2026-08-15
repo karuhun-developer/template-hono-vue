@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { repeatable } from '#lib/query'
 import { email } from '#modules/auth/auth.schema'
 
 /**
@@ -47,21 +48,6 @@ export type UpdateUserBody = z.infer<typeof updateUserBody>
  * mapped to actual columns in the repository. Nothing else can reach the query.
  */
 const userStatus = z.enum(['invited', 'active', 'disabled'])
-
-/**
- * A filter that may be given more than once.
- *
- * `?status=active&status=invited` reaches the handler as an array and `?status=active` as
- * a plain string; both mean a set, so the schema flattens them into one and the repository
- * only ever sees a list. Without this the second value would either be dropped silently or
- * rejected as invalid, and a filter that quietly ignores half of what you picked is worse
- * than one that refuses.
- */
-function repeatable<T extends z.ZodTypeAny>(value: T) {
-  return z
-    .union([value, z.array(value)])
-    .transform((given) => (Array.isArray(given) ? given : [given]) as z.output<T>[])
-}
 
 export const listUsersQuery = z.object({
   status: repeatable(userStatus).optional(),

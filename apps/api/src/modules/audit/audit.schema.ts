@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { repeatable } from '#lib/query'
+
 /**
  * The request shape for reading the trail.
  *
@@ -12,9 +14,12 @@ import { z } from 'zod'
 const uuid = z.uuid('Not a valid id.')
 
 export const listAuditLogsQuery = z.object({
-  /** e.g. `user.disable` — the same vocabulary as the permission keys. */
-  action: z.string().trim().max(64).optional(),
-  subjectType: z.string().trim().max(64).optional(),
+  /**
+   * e.g. `user.disable` — the same vocabulary as the permission keys. Repeatable, because
+   * "who touched access" is a question about several actions at once.
+   */
+  action: repeatable(z.string().trim().max(64)).optional(),
+  subjectType: repeatable(z.string().trim().max(64)).optional(),
   subjectId: uuid.optional(),
   actorId: uuid.optional(),
 

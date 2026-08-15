@@ -183,6 +183,23 @@ describe('GET /audit-logs', () => {
     )
   })
 
+  /** The console's Action filter is a checkbox list, so it sends `action` once per tick. */
+  it('takes a repeated action as a set', async () => {
+    const one = `${TAG}.alpha`
+    const two = `${TAG}.beta`
+
+    for (const action of [one, two]) {
+      await recordAudit(db, { type: 'user', label: READER }, { action, subjectType: 'users' })
+    }
+
+    const res = await request(app, `/audit-logs?action=${one}&action=${two}`, {
+      cookie: readerCookie,
+    })
+    const body = (await res.json()) as { items: { action: string }[] }
+
+    expect([...body.items.map((item) => item.action)].sort()).toEqual([one, two].sort())
+  })
+
   it('pages by keyset, and stops offering a cursor at the end', async () => {
     const action = `${TAG}.page`
     for (let index = 0; index < 3; index += 1) {

@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, type SQL } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt, type SQL } from 'drizzle-orm'
 import type { Context } from 'hono'
 
 import { db, type DatabaseHandle } from '#db/client'
@@ -125,8 +125,8 @@ export type AuditLogPage = {
 export async function listAuditLogs(query: ListAuditLogsQuery): Promise<AuditLogPage> {
   const filters: SQL[] = []
 
-  if (query.action) filters.push(eq(auditLogs.action, query.action))
-  if (query.subjectType) filters.push(eq(auditLogs.subjectType, query.subjectType))
+  if (query.action?.length) filters.push(inArray(auditLogs.action, query.action))
+  if (query.subjectType?.length) filters.push(inArray(auditLogs.subjectType, query.subjectType))
   if (query.subjectId) filters.push(eq(auditLogs.subjectId, query.subjectId))
   if (query.actorId) filters.push(eq(auditLogs.actorId, query.actorId))
   if (query.cursor) filters.push(lt(auditLogs.id, query.cursor))
