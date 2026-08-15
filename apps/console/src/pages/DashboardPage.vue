@@ -16,36 +16,41 @@ const session = useSessionStore()
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-3xl space-y-4">
+  <div class="space-y-5">
     <div>
-      <h1 class="text-xl font-semibold">Hello, {{ session.user?.name ?? 'there' }}</h1>
+      <h2 class="text-2xl font-semibold tracking-tight">
+        Hello, {{ session.user?.name ?? 'there' }}
+      </h2>
       <p class="text-muted-foreground text-sm">{{ session.user?.email }}</p>
     </div>
 
-    <Card>
-      <CardHeader>
-        <CardTitle>Your access</CardTitle>
-        <CardDescription>
-          Recalculated from the server every time the console is opened — never stored in the
-          browser.
-        </CardDescription>
-      </CardHeader>
-      <CardContent class="space-y-3 text-sm">
-        <div class="flex items-center justify-between gap-3">
-          <span class="text-muted-foreground">Permissions</span>
-          <Badge variant="secondary">{{ session.permissions.length }}</Badge>
-        </div>
-        <div v-if="session.permissions.length > 0" class="flex flex-wrap gap-2 pt-1">
-          <Badge v-for="permission in session.permissions" :key="permission" variant="outline">
-            {{ permission }}
-          </Badge>
-        </div>
-        <p v-else class="text-muted-foreground">
-          No permissions yet. Ask an administrator to give your account a role.
-        </p>
-      </CardContent>
-    </Card>
+    <!-- Side by side where there is room; the cards are short and neither is the main one. -->
+    <div class="grid items-start gap-4 lg:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>Your access</CardTitle>
+          <CardDescription>
+            Recalculated from the server every time the console is opened — never stored in the
+            browser.
+          </CardDescription>
+        </CardHeader>
+        <CardContent class="space-y-3 text-sm">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-muted-foreground">Permissions</span>
+            <Badge variant="secondary">{{ session.permissions.length }}</Badge>
+          </div>
+          <div v-if="session.permissions.length > 0" class="flex flex-wrap gap-2 pt-1">
+            <Badge v-for="permission in session.permissions" :key="permission" variant="outline">
+              {{ permission }}
+            </Badge>
+          </div>
+          <p v-else class="text-muted-foreground">
+            No permissions yet. Ask an administrator to give your account a role.
+          </p>
+        </CardContent>
+      </Card>
 
-    <HealthCard />
+      <HealthCard />
+    </div>
   </div>
 </template>
