@@ -27,17 +27,21 @@ const TAG = 'users'
 const OWNER = emailFor(TAG, 'owner')
 /** Holds `user.invite` and `user.update`, but nothing dangerous — the escalation subject. */
 const RECRUITER = emailFor(TAG, 'recruiter')
+/** Holds `user.create` and nothing else worth having: the same escalation, the other door. */
+const STAFFER = emailFor(TAG, 'staffer')
 const MEMBER = emailFor(TAG, 'member')
 /** Switched off, and holding nothing — here so a status filter has two answers to pick from. */
 const DORMANT = emailFor(TAG, 'dormant')
 
 let ownerCookie: string
 let recruiterCookie: string
+let stafferCookie: string
 let memberCookie: string
 let memberId: string
 let ownerId: string
 let powerfulRoleId: string
 let recruiterRoleId: string
+let stafferRoleId: string
 let plainRoleId: string
 
 beforeAll(async () => {
@@ -47,6 +51,7 @@ beforeAll(async () => {
   powerfulRoleId = await createRole(TAG, 'powerful', [
     'user.read',
     'user.invite',
+    'user.create',
     'user.update',
     'user.disable',
     'role.read',
@@ -54,15 +59,18 @@ beforeAll(async () => {
     'audit.read',
   ])
   recruiterRoleId = await createRole(TAG, 'recruiter', ['user.read', 'user.invite', 'user.update'])
+  stafferRoleId = await createRole(TAG, 'staffer', ['user.read', 'user.create'])
   plainRoleId = await createRole(TAG, 'plain', ['user.read'])
 
   ownerId = await createUser(OWNER, { name: 'Owner', roleIds: [powerfulRoleId] })
   await createUser(RECRUITER, { name: 'Recruiter', roleIds: [recruiterRoleId] })
+  await createUser(STAFFER, { name: 'Staffer', roleIds: [stafferRoleId] })
   memberId = await createUser(MEMBER, { name: 'Member', roleIds: [plainRoleId] })
   await createUser(DORMANT, { name: 'Dormant', status: 'disabled' })
 
   ownerCookie = await login(app, OWNER)
   recruiterCookie = await login(app, RECRUITER)
+  stafferCookie = await login(app, STAFFER)
   memberCookie = await login(app, MEMBER)
 })
 
@@ -188,6 +196,30 @@ describe('GET /users', () => {
   })
 })
 
+describe('GET /users/:id', () => {
+  it('answers with one user and the roles they hold', async () => {
+    const res = await request(app, `/users/${memberId}`, { cookie: memberCookie })
+    expect(res.status).toBe(200)
+
+    const body = (await res.json()) as { user: { email: string; roles: { roleKey: string }[] } }
+    expect(body.user.email).toBe(MEMBER)
+    expect(body.user.roles.map((role) => role.roleKey)).toEqual([`${TAG}-plain`])
+  })
+
+  it('is 404 for a user that does not exist', async () => {
+    const res = await request(app, '/users/00000000-0000-7000-8000-000000000000', {
+      cookie: ownerCookie,
+    })
+
+    expect(res.status).toBe(404)
+  })
+
+  it('is 400 for an id that is not an id', async () => {
+    const res = await request(app, '/users/not-a-uuid', { cookie: ownerCookie })
+    expect(res.status).toBe(400)
+  })
+})
+
 describe('POST /users', () => {
   it('is refused without user.invite', async () => {
     const res = await request(app, '/users', {
@@ -249,6 +281,118 @@ describe('POST /users', () => {
       .select({ id: users.id })
       .from(users)
       .where(eq(users.email, emailFor(TAG, 'promoted')))
+    expect(row).toBeUndefined()
+  })
+})
+
+describe('POST /users/create', () => {
+  const CREATED = emailFor(TAG, 'created')
+  const CREATED_PASSWORD = 'created-password-2026'
+
+  /**
+   * The test the route split exists for. A recruiter may hand out invitations all day; the
+   * account whose password they choose is a different act, and holding one permission must
+   * not quietly confer the other.
+   */
+  it('is refused for a caller who holds user.invite but not user.create', async () => {
+    const res = await request(app, '/users/create', {
+      method: 'POST',
+      cookie: recruiterCookie,
+      body: {
+        email: emailFor(TAG, 'shortcut'),
+        name: 'Shortcut',
+        password: CREATED_PASSWORD,
+        roleIds: [plainRoleId],
+      },
+    })
+
+    expect(res.status).toBe(403)
+  })
+
+  it('creates an active account that can sign in straight away', async () => {
+    const res = await request(app, '/users/create', {
+      method: 'POST',
+      cookie: ownerCookie,
+      body: {
+        email: CREATED,
+        name: 'Created Directly',
+        password: CREATED_PASSWORD,
+        roleIds: [plainRoleId],
+      },
+    })
+
+    expect(res.status).toBe(201)
+    const body = (await res.json()) as {
+      user: { email: string; status: string; roles: { roleKey: string }[] }
+    }
+    expect(body.user.status).toBe('active')
+    expect(body.user.roles.map((role) => role.roleKey)).toEqual([`${TAG}-plain`])
+
+    // No invitation to accept, no token to hand over: the password is already set, which is
+    // the entire difference between this endpoint and `POST /users`.
+    await expect(login(app, CREATED, CREATED_PASSWORD)).resolves.toBeTruthy()
+  })
+
+  it('never lets the password out again, in the response or the list', async () => {
+    const list = await request(app, '/users?perPage=100', { cookie: ownerCookie })
+    expect(await list.text()).not.toContain(CREATED_PASSWORD)
+  })
+
+  it('refuses a password shorter than the rule for setting one', async () => {
+    const res = await request(app, '/users/create', {
+      method: 'POST',
+      cookie: ownerCookie,
+      body: {
+        email: emailFor(TAG, 'weak'),
+        name: 'Weak',
+        password: 'sevench',
+        roleIds: [plainRoleId],
+      },
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('refuses an address that is already in use', async () => {
+    const res = await request(app, '/users/create', {
+      method: 'POST',
+      cookie: ownerCookie,
+      body: {
+        email: MEMBER,
+        name: 'Duplicate',
+        password: CREATED_PASSWORD,
+        roleIds: [plainRoleId],
+      },
+    })
+
+    expect(res.status).toBe(409)
+  })
+
+  /** The same escalation `POST /users` refuses, through the other door. */
+  it('refuses to hand out a role holding permissions the creator lacks', async () => {
+    const res = await request(app, '/users/create', {
+      method: 'POST',
+      cookie: stafferCookie,
+      body: {
+        email: emailFor(TAG, 'promoted-directly'),
+        name: 'Promoted',
+        password: CREATED_PASSWORD,
+        roleIds: [powerfulRoleId],
+      },
+    })
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({
+      error: {
+        code: 'forbidden',
+        details: { permissions: expect.arrayContaining(['audit.read']) },
+      },
+    })
+
+    const [row] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, emailFor(TAG, 'promoted-directly')))
     expect(row).toBeUndefined()
   })
 })

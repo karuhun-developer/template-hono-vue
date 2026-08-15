@@ -7,8 +7,15 @@ import { requirePermission } from '#middleware/rbac'
 import type { AppBindings } from '#middleware/request-context'
 import { currentAccess, requireAuth } from '#middleware/session'
 import { actorFromContext } from '#modules/audit/audit.repo'
-import { inviteUserBody, listUsersQuery, updateUserBody } from '#modules/users/users.schema'
 import {
+  createUserBody,
+  inviteUserBody,
+  listUsersQuery,
+  updateUserBody,
+} from '#modules/users/users.schema'
+import {
+  createUser,
+  getUser,
   inviteUser,
   listVisibleUsers,
   resendInvite,
@@ -49,6 +56,15 @@ export const userRoutes = new Hono<AppBindings>()
     },
   )
 
+  .get(
+    '/:id',
+    requirePermission('user.read'),
+    zValidator('param', idParam, validationHook),
+    async (c) => {
+      return c.json({ user: await getUser(c.req.valid('param').id) })
+    },
+  )
+
   .post(
     '/',
     requirePermission('user.invite'),
@@ -58,6 +74,26 @@ export const userRoutes = new Hono<AppBindings>()
 
       c.get('logger').info({ userId: result.user.id }, 'user invited')
       return c.json(result, 201)
+    },
+  )
+
+  /**
+   * Creating an account with a password, as opposed to inviting one.
+   *
+   * A second route rather than a mode on `POST /users`, because the permission belongs on
+   * the route, next to the method and the path. Folding both into one endpoint would mean
+   * `requireAnyPermission` plus an `if` about the caller inside the handler — and a 403
+   * test that can no longer say which of the two capabilities it is asserting.
+   */
+  .post(
+    '/create',
+    requirePermission('user.create'),
+    zValidator('json', createUserBody, validationHook),
+    async (c) => {
+      const user = await createUser(currentAccess(c), actorFromContext(c), c.req.valid('json'))
+
+      c.get('logger').info({ userId: user.id }, 'user created')
+      return c.json({ user }, 201)
     },
   )
 

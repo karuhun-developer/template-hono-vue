@@ -4,6 +4,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { db, type DatabaseHandle } from '#db/client'
 import { roles as rolesTable, users } from '#db/schema'
 import { badRequest, conflict, notFound } from '#lib/errors'
+import { hashPassword } from '#lib/password'
 import { issueToken } from '#lib/token'
 import { diffFields, recordAudit, type AuditActor } from '#modules/audit/audit.repo'
 import { type AccessContext } from '#modules/rbac/rbac.repo'
@@ -16,7 +17,12 @@ import {
   replaceUserRoles,
   type UserWithRoles,
 } from '#modules/users/users.repo'
-import type { InviteUserBody, ListUsersQuery, UpdateUserBody } from '#modules/users/users.schema'
+import type {
+  CreateUserBody,
+  InviteUserBody,
+  ListUsersQuery,
+  UpdateUserBody,
+} from '#modules/users/users.schema'
 
 /**
  * The rules around managing people.
@@ -73,7 +79,78 @@ export async function listVisibleUsers(query: ListUsersQuery): Promise<UserListP
   return { items: rows, total, page: query.page, perPage: query.perPage }
 }
 
+/**
+ * One user, by id.
+ *
+ * Answers with the same shape a row in the list has, so a page that opens a record does not
+ * have to reconcile two slightly different users. A `404` rather than an empty body: "no
+ * such user" is not a successful read.
+ */
+export async function getUser(userId: string): Promise<UserWithRoles> {
+  const user = await findUser(db, userId)
+  if (!user) throw notFound('User not found.')
+  return user
+}
+
 // --- Write ------------------------------------------------------------------
+
+/**
+ * Create an account outright, with a password set on the new person's behalf.
+ *
+ * The sibling of `inviteUser`, and it runs the same escalation guard first for the same
+ * reason: without it `user.create` quietly means "may become owner". The two differ only in
+ * how the account gets its first password — which is exactly why they are two permissions
+ * and two routes.
+ */
+export async function createUser(
+  access: AccessContext,
+  actor: AuditActor,
+  body: CreateUserBody,
+): Promise<UserWithRoles> {
+  await assertRolesGrantable(access, body.roleIds)
+
+  if (await emailTaken(db, body.email)) {
+    throw conflict('That email address already belongs to someone here.')
+  }
+
+  /**
+   * Hashed **before** the transaction opens. Argon2id is deliberately ~50 ms of CPU, and
+   * holding a pooled connection open across it is a connection nobody else can have for no
+   * reason at all — nothing in the hash depends on anything the transaction reads.
+   */
+  const passwordHash = await hashPassword(body.password)
+
+  return db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(users)
+      .values({
+        email: body.email,
+        name: body.name,
+        status: 'active',
+        passwordHash,
+      })
+      .returning({ id: users.id })
+
+    if (!created) throw new Error('the user could not be created')
+
+    await replaceUserRoles(tx, created.id, body.roleIds)
+
+    const saved = await findUser(tx, created.id)
+    if (!saved) throw new Error('the new user could not be read back')
+
+    await recordAudit(tx, actor, {
+      action: 'user.create',
+      subjectType: 'users',
+      subjectId: saved.id,
+      subjectLabel: saved.email,
+      // No password material. `recordAudit` redacts those keys on the way in, and the way
+      // to keep that guarantee true is to never hand it any in the first place.
+      after: { email: saved.email, name: saved.name, roles: describe(saved) },
+    })
+
+    return saved
+  })
+}
 
 export async function inviteUser(
   access: AccessContext,

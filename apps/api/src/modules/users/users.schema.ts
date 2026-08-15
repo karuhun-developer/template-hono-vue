@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { repeatable } from '#lib/query'
-import { email } from '#modules/auth/auth.schema'
+import { email, newPassword } from '#modules/auth/auth.schema'
 
 /**
  * The shape of user management requests.
@@ -29,6 +29,18 @@ const roleIds = z
 export const inviteUserBody = z.object({ email, name, roleIds })
 
 export type InviteUserBody = z.infer<typeof inviteUserBody>
+
+/**
+ * Creating an account outright, with a password chosen by whoever creates it.
+ *
+ * `password` is `newPassword` from the auth schema rather than a rule of its own. There is
+ * one answer in this codebase to "what counts as an acceptable password", and a second
+ * copy of it here is the copy that would keep saying six characters after the first was
+ * raised to twelve.
+ */
+export const createUserBody = z.object({ email, name, password: newPassword, roleIds })
+
+export type CreateUserBody = z.infer<typeof createUserBody>
 
 export const updateUserBody = z
   .object({

@@ -1,6 +1,6 @@
 # User management
 
-Inviting people, editing them and their roles, and switching accounts on and off. Everything here writes an audit entry.
+Inviting people, creating them outright, editing them and their roles, and switching accounts on and off. Everything here writes an audit entry.
 
 | Concern   | File                                          |
 | --------- | --------------------------------------------- |
@@ -15,19 +15,34 @@ Inviting people, editing them and their roles, and switching accounts on and off
 | Method  | Path                | Permission     | Does                                           |
 | ------- | ------------------- | -------------- | ---------------------------------------------- |
 | `GET`   | `/users`            | `user.read`    | List — paged, sorted, filtered (see below)     |
+| `GET`   | `/users/:id`        | `user.read`    | One user, in the shape a list row has          |
 | `POST`  | `/users`            | `user.invite`  | Create as `invited`, return the token **once** |
+| `POST`  | `/users/create`     | `user.create`  | Create as `active`, with a password            |
 | `POST`  | `/users/:id/invite` | `user.invite`  | Re-issue the token; the previous link dies     |
 | `PATCH` | `/users/:id`        | `user.update`  | Name and roles                                 |
 | `POST`  | `/users/:id/status` | `user.disable` | `active` ⇄ `disabled`                          |
 
 Status has **its own endpoint and its own permission** rather than being a field on `PATCH /users/:id`. Locking somebody out is not the same kind of act as correcting the spelling of their name, and the audit entry it writes should not depend on anyone remembering to look at a `status` key in a request body.
 
+## Two ways an account begins
+
+`POST /users` invites: the account lands `invited` with no password, and the person chooses their own by following the link. `POST /users/create` sets one on their behalf and the account lands `active`, ready to sign in.
+
+They are **two routes with two permissions**, not one endpoint with a mode, and both halves of that sentence are load-bearing:
+
+- The permission belongs on the route, beside the method and the path. One endpoint carrying both would need `requireAnyPermission` plus an `if` about the caller inside the handler — and a 403 test that can no longer say which capability it is asserting.
+- Choosing somebody else's password is a different act from mailing them a link, so `user.create` is owner-only while `user.invite` is not. An administrator can bring people in all day without ever holding a credential that is not theirs.
+
+`password` on `POST /users/create` is the **same `newPassword` rule** the invitation flow uses when the invited person picks theirs — one answer in this codebase to "what counts as an acceptable password", so raising the minimum raises it everywhere. The hash is computed **before the transaction opens**: argon2id is deliberately ~50 ms of CPU, and nothing in it depends on anything the transaction reads, so holding a pooled connection across it buys nothing.
+
+Both routes run `assertRolesGrantable()` first, for the reason in the next section. Leaving it off `create` would make `user.create` mean "may become owner" just as surely as leaving it off `invite`.
+
 ## The lifecycle
 
 ```text
-                POST /users
-                     │
-                     ▼
+                POST /users                    POST /users/create
+                     │                                 │
+                     ▼                                 ▼
    ┌────────────┐  accept invitation   ┌───────────┐
    │  invited   │ ───────────────────► │  active   │
    └────────────┘  (sets first password)└───────────┘
@@ -51,7 +66,7 @@ Status has **its own endpoint and its own permission** rather than being a field
 
 **1. You cannot hand out a role you could not grant yourself.** `assertRolesGrantable()` expands each requested role into its permissions and runs them through `assertGrantable()` — the same check the roles module applies from the other side. Without it, `user.invite` quietly means "may become owner": create an account, give it the Owner role, sign in as it.
 
-It applies to inviting **and** to editing, because the escalation works either way round.
+It applies to inviting, to creating **and** to editing, because the escalation works from every one of those directions.
 
 **2. Nobody can disable their own account.** The button that would undo it is behind the access they just took away from themselves. The API refuses with a `400`; the console hides the button on your own row, so the message is a backstop rather than the primary experience.
 
@@ -99,7 +114,7 @@ GET /users?q=ada&status=active&status=invited&roleId=…&page=2&perPage=10&sort=
 
 The console debounces the search by 300 ms — enough that typing "administrator" is one request rather than thirteen, short enough that it still feels immediate — and resets `page` to 1 whenever a filter changes, since page 4 of a narrower list is rarely where anybody meant to be.
 
-`loadRoles()` failing does not fail the page: the list is still readable, and only the role filter is unavailable. A secondary request should not take the primary content down with it.
+`useRoleOptions()` failing does not fail the page: the list is still readable, and only the role filter is unavailable. A secondary request should not take the primary content down with it.
 
 ## Conventions
 
