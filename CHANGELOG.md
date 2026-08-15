@@ -55,5 +55,6 @@ Example release section — copy this shape when you cut a version:
 - Console: user, role and audit-log pages.
 - CI: GitHub Actions running the full gate, Dependabot with auto-merge for patch and minor updates.
 - Documentation: architecture, conventions, feature docs, guides and decision records.
+- Documentation: `docs/features/database.md` — the schema, the column vocabulary, the migration workflow and its failure modes.
 - `AGENTS.md` with the non-negotiables, and `CLAUDE.md` pointing at it.
 - `scripts/rename.mjs` — rename the template across nine files, with `--dry-run`.

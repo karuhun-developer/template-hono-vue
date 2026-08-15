@@ -84,6 +84,8 @@ make generate name=add_settings   # writes apps/api/drizzle/NNNN_add_settings.sq
 make migrate                      # applies what is pending
 ```
 
+The rules below are the short version. [`features/database.md`](features/database.md) is the long one — recipes, what to look for in generated SQL, expand-contract deploys, and why editing an applied migration fails silently rather than loudly.
+
 - **Always generate. Never `drizzle-kit push`.** Push mutates the database with no artefact, which means no review, no history, and no reproducing it on another machine.
 - **Read the generated SQL before committing it.** Drizzle guesses at renames; a rename it reads as drop-then-create is silent data loss.
 - **Never edit a migration that has run anywhere.** Two databases with the same version number and different schemas is a debugging session nobody deserves. Write a new one.

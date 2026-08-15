@@ -47,6 +47,7 @@ make generate name=add_settings   # a new migration
 | You are about to                          | Read first                                                                                      |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Add an endpoint, a table, a permission    | [`docs/guides/add-api-module.md`](docs/guides/add-api-module.md)                                |
+| Change the schema or write a migration    | [`docs/features/database.md`](docs/features/database.md)                                        |
 | Add a second Vue app                      | [`docs/guides/add-frontend-app.md`](docs/guides/add-frontend-app.md)                            |
 | Add `tenant_id` to anything               | [`docs/guides/add-multi-tenancy.md`](docs/guides/add-multi-tenancy.md) — and read it to the end |
 | Touch sessions, cookies or invitations    | [`docs/features/auth.md`](docs/features/auth.md)                                                |

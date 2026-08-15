@@ -13,6 +13,7 @@ Start with [`architecture.md`](architecture.md). Everything else assumes it.
 | [`features/rbac.md`](features/rbac.md)                                                             | Adding a permission, or wondering why a checkbox is disabled |
 | [`features/users.md`](features/users.md)                                                           | Changing the user lifecycle                                  |
 | [`features/audit-log.md`](features/audit-log.md)                                                   | Recording an action, or reading the trail                    |
+| [`features/database.md`](features/database.md)                                                     | Adding a table or a column, and generating the migration     |
 | [`features/console-shell.md`](features/console-shell.md)                                           | Adding a page or a navigation item                           |
 | [`features/code-quality.md`](features/code-quality.md)                                             | The gate rejected something and you want to know which part  |
 | [`features/docker.md`](features/docker.md)                                                         | Adding a service, or packaging for production                |

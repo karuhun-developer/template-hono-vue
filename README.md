@@ -14,6 +14,7 @@ Everything here is deliberately small. What it gives you is the part every proje
 | **RBAC** — a permission catalog, custom roles, a two-directional grantable rule | [`docs/features/rbac.md`](docs/features/rbac.md)                   |
 | **User management** — invite, edit, enable, disable                             | [`docs/features/users.md`](docs/features/users.md)                 |
 | **Audit log** — append-only, written inside the transaction it describes        | [`docs/features/audit-log.md`](docs/features/audit-log.md)         |
+| **Database** — the schema, the column vocabulary, and how migrations work       | [`docs/features/database.md`](docs/features/database.md)           |
 | **Console shell** — routing, the session store, the navigation guard            | [`docs/features/console-shell.md`](docs/features/console-shell.md) |
 | **The gate** — Prettier, TypeScript, ESLint, Vitest, GitHub Actions             | [`docs/features/code-quality.md`](docs/features/code-quality.md)   |
 
@@ -80,6 +81,7 @@ Re-running `make seed` leaves existing accounts **completely alone**, password i
 
 - [Architecture](docs/architecture.md) — the golden rules, the request lifecycle, the type contract, and the checklist every feature follows. **Read this first.**
 - [Conventions](docs/conventions.md) — naming, imports, errors, migrations, commits.
+- [The database](docs/features/database.md) — writing a table, generating a migration, and every way that goes wrong.
 - [Add a frontend app](docs/guides/add-frontend-app.md) — the headline guide: a second Vue app in eleven steps, with no change to `apps/api`.
 - [Add an API module](docs/guides/add-api-module.md) — a new endpoint end to end, permission included.
 - [Add multi-tenancy](docs/guides/add-multi-tenancy.md) — the complete recipe, with the source you would need, and what it costs.
