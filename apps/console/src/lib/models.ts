@@ -14,9 +14,12 @@ import type { api } from '@/lib/api'
  * the wire carries `Date` objects.
  */
 
-export type UserSummary = InferResponseType<typeof api.users.$get>['items'][number]
-export type UserStatus = UserSummary['status']
-export type UserRoleRef = UserSummary['roles'][number]
+/**
+ * A module's own types live with its calls, in `features/<module>/api.ts`, and are
+ * re-exported here so that `@/lib/models` stays the one import a page reaches for. What is
+ * declared *here* is what belongs to no single module.
+ */
+export type { UserRoleRef, UserStatus, UserSummary } from '@/features/users/api'
 
 export type RoleSummary = InferResponseType<typeof api.roles.$get>['items'][number]
 

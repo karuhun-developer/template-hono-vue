@@ -25,7 +25,20 @@ const FALLBACK_BY_STATUS: Partial<Record<number, string>> = {
   429: 'Too many requests. Try again in a moment.',
 }
 
-export async function readApiError(response: Response): Promise<ApiFailure> {
+/**
+ * The two members this reader actually touches.
+ *
+ * Structural rather than `Response` so that a typed `ClientResponse` from the Hono client
+ * — whose `json()` is narrowed to the *success* shape — can be passed straight in. What
+ * arrives on an error is not that shape, which is precisely why it is read as `unknown`
+ * and narrowed by `isApiErrorBody`.
+ */
+export type ErrorResponse = {
+  status: number
+  json: () => Promise<unknown>
+}
+
+export async function readApiError(response: ErrorResponse): Promise<ApiFailure> {
   const body: unknown = await response.json().catch(() => null)
 
   if (isApiErrorBody(body)) {
@@ -56,6 +69,29 @@ export function networkFailure(error: unknown): ApiFailure {
     message: 'Could not reach the server. Check your connection.',
     status: 0,
     details: error instanceof Error ? error.message : error,
+  }
+}
+
+/** What a write returned: the body, or the reason there is no body. */
+export type ActionResult<T> = { data: T } | { failure: ApiFailure }
+
+/**
+ * One `try`/`catch` for every write in the console.
+ *
+ * The three outcomes a page has to handle — it worked, the API refused, the request never
+ * arrived — are the same on every button, and writing them out per handler is how one of
+ * them ends up missing its `catch` and turning a flaky connection into an unhandled
+ * rejection.
+ */
+export async function readAction<T>(
+  send: () => Promise<{ ok: boolean; status: number; json: () => Promise<T> }>,
+): Promise<ActionResult<T>> {
+  try {
+    const response = await send()
+    if (!response.ok) return { failure: await readApiError(response) }
+    return { data: await response.json() }
+  } catch (error) {
+    return { failure: networkFailure(error) }
   }
 }
 
