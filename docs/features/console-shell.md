@@ -2,20 +2,45 @@
 
 The Vue side: how a page gets its data, how the session is known, and what happens on the way to a route.
 
-| Concern                 | File                                         |
-| ----------------------- | -------------------------------------------- |
-| Typed API client        | `apps/console/src/lib/api.ts`                |
-| Response types          | `apps/console/src/lib/models.ts`             |
-| Error reading           | `apps/console/src/lib/api-error.ts`          |
-| Session                 | `apps/console/src/stores/session.ts`         |
-| Navigation rules (pure) | `apps/console/src/lib/access.ts`             |
-| Routes and the guard    | `apps/console/src/router/index.ts`           |
-| Menu items              | `apps/console/src/lib/nav.ts`                |
-| Layout (signed in)      | `apps/console/src/layouts/AppShell.vue`      |
-| Layout (signed out)     | `apps/console/src/layouts/AuthLayout.vue`    |
-| The navigation itself   | `apps/console/src/components/AppSidebar.vue` |
-| The account menu        | `apps/console/src/components/NavUser.vue`    |
-| Theme state             | `apps/console/src/composables/useTheme.ts`   |
+| Concern                 | File                                              |
+| ----------------------- | ------------------------------------------------- |
+| Typed API client        | `apps/console/src/lib/api.ts`                     |
+| Response types          | `apps/console/src/lib/models.ts`                  |
+| Error reading           | `apps/console/src/lib/api-error.ts`               |
+| List state              | `apps/console/src/composables/useResourceList.ts` |
+| A module's own code     | `apps/console/src/features/<module>/`             |
+| Session                 | `apps/console/src/stores/session.ts`              |
+| Navigation rules (pure) | `apps/console/src/lib/access.ts`                  |
+| Routes and the guard    | `apps/console/src/router/index.ts`                |
+| Menu items              | `apps/console/src/lib/nav.ts`                     |
+| Layout (signed in)      | `apps/console/src/layouts/AppShell.vue`           |
+| Layout (signed out)     | `apps/console/src/layouts/AuthLayout.vue`         |
+| The navigation itself   | `apps/console/src/components/AppSidebar.vue`      |
+| The account menu        | `apps/console/src/components/NavUser.vue`         |
+| Theme state             | `apps/console/src/composables/useTheme.ts`        |
+
+## Where a file goes
+
+**Used by two or more modules → `components/`. Owned by one → `features/<module>/`.**
+
+```text
+src/
+  components/   app-wide only: AppSidebar · NavUser · ThemeToggle · FailureAlert · HealthCard
+                · RolesEditor · PermissionMatrix
+  composables/  useResourceList · useTheme — state, no markup
+  features/
+    users/      api.ts · useUsersList.ts · UsersTable.vue · UserFormDialog.vue
+                · InviteTokenDialog.vue
+    roles/      api.ts · useRolesList.ts · useRoleOptions.ts · RolesTable.vue
+                · RoleFormDialog.vue
+  pages/        thin: heading, alert, table, dialogs — the wiring and nothing else
+```
+
+A module's `api.ts` holds **every** call to that module's endpoints and every type derived from them. Nothing outside `features/<module>/` calls `api.<module>.…` directly, so a screen that wants only the edit dialog imports the dialog and gets its calls with it — instead of copying a request and, sooner or later, dropping the part that made a failure non-fatal.
+
+`RolesEditor.vue` is the shape of the rule: it renders _role_ checkboxes inside a _user_ dialog, so it belongs to neither and lives in `components/`. `PermissionMatrix.vue` is the same case one level along — _permission_ checkboxes inside a _role_ dialog.
+
+Pages stay in `pages/` because the router points at them, and they stay short. A page that has grown past a screenful is a table and a dialog that have not been extracted yet.
 
 ## Routes
 
@@ -82,7 +107,9 @@ After signing in the store calls `bootstrap()` rather than using the login respo
 export type UserSummary = InferResponseType<typeof api.users.$get>['items'][number]
 ```
 
-Not one type in `models.ts` is written by hand. A column that disappears from the backend becomes a TypeScript error in the page that used it, rather than an `undefined` somebody notices on screen a week later.
+Not one type is written by hand. A column that disappears from the backend becomes a TypeScript error in the page that used it, rather than an `undefined` somebody notices on screen a week later.
+
+A module's types are declared in its own `features/<module>/api.ts`, beside the calls they describe, and re-exported from `lib/models.ts` — so `@/lib/models` stays the one import a page reaches for, while the definition sits next to the request it came out of.
 
 A `Date` in the API arrives here as a `string`, and the type says so. That is what `JSON.stringify` produces, and pretending the wire carries `Date` objects only moves the surprise to runtime.
 
@@ -131,13 +158,14 @@ An item with `children` is a disclosure, not a destination: it expands, and its 
 
 ## Adding a page
 
-1. Create `src/pages/ThingPage.vue`.
-2. Add the route as a child of the `AppShell` record, with `meta: { title, permission }`.
-3. Add the `NAV_GROUPS` entry — **in the same commit**, in the group it belongs to, or a new group if it starts one.
-4. Derive the page's types in `lib/models.ts` from `AppType`.
-5. Use `readApiError` / `networkFailure` and a `FailureAlert`. Skeletons while loading, an empty state that says why it is empty.
-6. If it is a list, it is a `DataTable` — see [`data-table.md`](data-table.md).
-7. Confirm the API route carries the matching `requirePermission()`. That is the part that matters.
+1. Create `src/features/<module>/api.ts`: the calls, and the types derived from `AppType`.
+2. Create `src/pages/ThingPage.vue`.
+3. Add the route as a child of the `AppShell` record, with `meta: { title, permission }`.
+4. Add the `NAV_GROUPS` entry — **in the same commit**, in the group it belongs to, or a new group if it starts one.
+5. Re-export the module's types from `lib/models.ts`.
+6. Use `readAction` / `readApiError` and a `FailureAlert`. Skeletons while loading, an empty state that says why it is empty.
+7. If it is a list, its state is `useResourceList` and its table is `features/<module>/<Module>Table.vue` — see [`data-table.md`](data-table.md).
+8. Confirm the API route carries the matching `requirePermission()`. That is the part that matters.
 
 ## Conventions
 

@@ -19,15 +19,7 @@ import type { api } from '@/lib/api'
  * re-exported here so that `@/lib/models` stays the one import a page reaches for. What is
  * declared *here* is what belongs to no single module.
  */
+export type { PermissionCatalog, RoleSummary } from '@/features/roles/api'
 export type { UserRoleRef, UserStatus, UserSummary } from '@/features/users/api'
-
-export type RoleSummary = InferResponseType<typeof api.roles.$get>['items'][number]
-
-/**
- * The catalog *and* what the caller holds, in one type — because that is how the endpoint
- * answers, and because the role matrix cannot be rendered correctly from either half
- * alone: the first decides the rows, the second decides which ticks may be touched.
- */
-export type PermissionCatalog = InferResponseType<typeof api.roles.permissions.$get>
 
 export type AuditLogEntry = InferResponseType<(typeof api)['audit-logs']['$get']>['items'][number]

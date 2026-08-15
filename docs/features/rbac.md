@@ -114,7 +114,7 @@ Both, because the matrix cannot be rendered correctly from either half alone: th
 
 `GET /roles` is paged like the user list — `page`, `perPage` (1–100, default 20), `sort` (`name` · `key` · `usedBy`) and `order` — and answers `{ items, total, page, perPage }`. `usedBy` is the number of accounts holding the role, and it is what the Delete action checks: a role in use is not deletable.
 
-> **The 100-role ceiling has one consequence worth knowing.** The user page needs the _whole_ role list — for the Role facet and for `UserFormDialog`'s checkboxes — so `UsersPage.vue` asks for `perPage: '100'` explicitly. Past a hundred roles that checkbox list stops being usable anyway and should become a search-picker. That is the point at which to change it, not before.
+> **The 100-role ceiling has one consequence worth knowing.** The user page needs the _whole_ role list — for the Role facet and for `UserFormDialog`'s checkboxes — so `useRoleOptions()` asks for `perPage: '100'` explicitly. Past a hundred roles that checkbox list stops being usable anyway and should become a search-picker. That is the point at which to change it, not before.
 
 > **None of the frontend is enforcement.** `hasPermission()`, the hidden nav items, the disabled checkboxes and `router.beforeEach` exist so nobody is offered a link that ends in a 403. **Test the real thing:** sign in as a member, open DevTools, and run
 > `await fetch('http://localhost:7300/roles', { credentials: 'include' })`.

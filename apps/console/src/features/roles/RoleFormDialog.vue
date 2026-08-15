@@ -16,10 +16,14 @@ import { computed, ref, watch } from 'vue'
 
 import FailureAlert from '@/components/FailureAlert.vue'
 import PermissionMatrix from '@/components/PermissionMatrix.vue'
+import {
+  createRole,
+  updateRole,
+  type PermissionCatalog,
+  type RoleSummary,
+} from '@/features/roles/api'
 import { beyondReach } from '@/lib/access'
-import { api } from '@/lib/api'
-import { networkFailure, readApiError, type ApiFailure } from '@/lib/api-error'
-import type { PermissionCatalog, RoleSummary } from '@/lib/models'
+import type { ApiFailure } from '@/lib/api-error'
 
 /**
  * Create and edit a role.
@@ -27,6 +31,10 @@ import type { PermissionCatalog, RoleSummary } from '@/lib/models'
  * The role's `key` appears nowhere in this form: it is derived from the name when the role
  * is created and never changes afterwards, so code may rely on it (`owner`, `admin`) while
  * the display name stays free to be rewritten.
+ *
+ * It lives in `features/roles/` rather than `components/` because it belongs to one module:
+ * any screen that needs to create or edit a role imports it from here, and gets the calls
+ * and the types along with it.
  */
 
 const props = defineProps<{
@@ -85,44 +93,32 @@ async function submit(): Promise<void> {
   submitting.value = true
   failure.value = null
 
-  try {
-    const response = await (props.role === null ? create() : update(props.role.id))
-    if (!response.ok) {
-      failure.value = await readApiError(response)
-      return
-    }
+  const role = props.role
+  const result =
+    role === null
+      ? await createRole({
+          name: name.value.trim(),
+          description: description.value.trim(),
+          permissions: permissions.value,
+        })
+      : await updateRole(role.id, {
+          name: name.value.trim(),
+          description: description.value.trim(),
+          // Locked matrix → `permissions` is deliberately left out of the payload. Sending
+          // it back unchanged would still be refused: a permission the caller does not hold
+          // counts as a grant, not as a copy.
+          ...(locked.value ? {} : { permissions: permissions.value }),
+        })
 
-    emit('saved')
-    emit('update:open', false)
-  } catch (error) {
-    failure.value = networkFailure(error)
-  } finally {
-    submitting.value = false
+  submitting.value = false
+
+  if ('failure' in result) {
+    failure.value = result.failure
+    return
   }
-}
 
-function create(): Promise<Response> {
-  return api.roles.$post({
-    json: {
-      name: name.value.trim(),
-      description: description.value.trim(),
-      permissions: permissions.value,
-    },
-  })
-}
-
-function update(id: string): Promise<Response> {
-  return api.roles[':id'].$patch({
-    param: { id },
-    json: {
-      name: name.value.trim(),
-      description: description.value.trim(),
-      // Locked matrix → `permissions` is deliberately left out of the payload. Sending it
-      // back unchanged would still be refused: a permission the caller does not hold counts
-      // as a grant, not as a copy.
-      ...(locked.value ? {} : { permissions: permissions.value }),
-    },
-  })
+  emit('saved')
+  emit('update:open', false)
 }
 </script>
 

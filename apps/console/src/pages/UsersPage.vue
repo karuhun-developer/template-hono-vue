@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import { Button } from '@app/ui'
 import { UserPlus } from '@lucide/vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import FailureAlert from '@/components/FailureAlert.vue'
+import { useRoleOptions } from '@/features/roles/useRoleOptions'
 import { resendInvite, setUserStatus, type UserSaved, type UserSummary } from '@/features/users/api'
 import InviteTokenDialog from '@/features/users/InviteTokenDialog.vue'
 import UserFormDialog from '@/features/users/UserFormDialog.vue'
 import UsersTable from '@/features/users/UsersTable.vue'
 import { useUsersList } from '@/features/users/useUsersList'
-import { api } from '@/lib/api'
-import type { RoleSummary } from '@/lib/models'
 import { useSessionStore } from '@/stores/session'
 
 /**
@@ -27,7 +26,13 @@ import { useSessionStore } from '@/stores/session'
 const session = useSessionStore()
 const list = useUsersList()
 
-const roles = ref<RoleSummary[]>([])
+/**
+ * The role list is what the form and the Role filter need. Failing to load it does **not**
+ * fail the page: somebody holding `user.read` without `role.read` may still look at the
+ * list, they simply cannot change anyone's roles — and that button is already hidden.
+ */
+const { roles } = useRoleOptions()
+
 const working = ref(false)
 
 const formOpen = ref(false)
@@ -37,25 +42,6 @@ const tokenOpen = ref(false)
 const issued = ref<{ email: string; token: string; expiresAt: string | null } | null>(null)
 
 const canInvite = computed(() => session.can('user.invite'))
-
-onMounted(() => void loadRoles())
-
-/**
- * The role list is what the form and the Role filter need. Failing to load it does **not**
- * fail the page: somebody holding `user.read` without `role.read` may still look at the
- * list, they simply cannot change anyone's roles — and that button is already hidden.
- */
-async function loadRoles(): Promise<void> {
-  try {
-    // The form needs every role at once to draw its checkboxes, so it asks for the maximum
-    // the API allows. Past a hundred roles this control has to become a picker with a
-    // search box — see `docs/features/rbac.md`.
-    const response = await api.roles.$get({ query: { perPage: '100' } })
-    if (response.ok) roles.value = (await response.json()).items
-  } catch {
-    roles.value = []
-  }
-}
 
 /* ------------------------------------------------------------------------------ actions */
 
