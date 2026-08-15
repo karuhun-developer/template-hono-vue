@@ -103,7 +103,10 @@ async function load(): Promise<void> {
  */
 async function loadRoles(): Promise<void> {
   try {
-    const response = await api.roles.$get()
+    // The form needs every role at once to draw its checkboxes, so it asks for the
+    // maximum the API allows. Past a hundred roles this control has to become a picker
+    // with a search box — see `docs/features/rbac.md`.
+    const response = await api.roles.$get({ query: { perPage: '100' } })
     if (response.ok) roles.value = (await response.json()).items
   } catch {
     roles.value = []

@@ -39,7 +39,10 @@ async function load(): Promise<void> {
   failure.value = null
 
   try {
-    const [list, permissions] = await Promise.all([api.roles.$get(), api.roles.permissions.$get()])
+    const [list, permissions] = await Promise.all([
+      api.roles.$get({ query: { perPage: '100' } }),
+      api.roles.permissions.$get(),
+    ])
 
     if (!list.ok) {
       failure.value = await readApiError(list)
