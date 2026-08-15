@@ -84,6 +84,38 @@ describe('GET /roles', () => {
 
     expect(viewer).toMatchObject({ permissions: ['user.read'], usedBy: 1 })
   })
+
+  it('pages and reports the total', async () => {
+    const res = await request(app, '/roles?perPage=1&sort=key&order=asc', { cookie: adminCookie })
+    const body = (await res.json()) as {
+      items: { key: string }[]
+      total: number
+      page: number
+      perPage: number
+    }
+
+    expect(body.items).toHaveLength(1)
+    expect(body).toMatchObject({ page: 1, perPage: 1 })
+    expect(body.total).toBeGreaterThanOrEqual(3)
+  })
+
+  /** `usedBy` is a count, and sorting by it is the reason it is a column and not a second pass. */
+  it('sorts by how many people hold each role', async () => {
+    const res = await request(app, '/roles?sort=usedBy&order=desc&perPage=100', {
+      cookie: adminCookie,
+    })
+    const body = (await res.json()) as { items: { usedBy: number }[] }
+    const counts = body.items.map((role) => role.usedBy)
+
+    expect(counts).toEqual([...counts].sort((a, b) => b - a))
+  })
+
+  it('refuses a sort key that is not on the list', async () => {
+    const res = await request(app, '/roles?sort=is_system', { cookie: adminCookie })
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ error: { code: 'bad_request' } })
+  })
 })
 
 describe('GET /roles/permissions', () => {

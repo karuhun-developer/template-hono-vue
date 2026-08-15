@@ -39,3 +39,24 @@ export const updateRoleBody = z
   .refine((value) => Object.keys(value).length > 0, 'Nothing to change — send at least one field.')
 
 export type UpdateRoleBody = z.infer<typeof updateRoleBody>
+
+/**
+ * Reading the list.
+ *
+ * The same envelope and the same caps as `listUsersQuery`, for the same reasons — see the
+ * note there about why `sort` is an enum. Roles are a short list in every installation
+ * this template is a starting point for, but "short" is not a property the API can check.
+ *
+ * `perPage` defaults higher than the user list because two dialogs need every role at once
+ * to render their checkboxes; they ask for `perPage=100` and the ceiling holds them there.
+ */
+export const listRolesQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  perPage: z.coerce.number().int().min(1).max(100).default(20),
+  sort: z.enum(['name', 'key', 'usedBy']).default('name'),
+  order: z.enum(['asc', 'desc']).default('asc'),
+})
+
+export type ListRolesQuery = z.infer<typeof listRolesQuery>
+
+export type ListRolesSort = ListRolesQuery['sort']

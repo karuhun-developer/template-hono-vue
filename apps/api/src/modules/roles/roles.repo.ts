@@ -1,8 +1,9 @@
 import { isPermissionKey, type PermissionKey } from '@app/contract'
-import { asc, eq, inArray, sql } from 'drizzle-orm'
+import { asc, count, desc, eq, inArray, sql, type SQLWrapper } from 'drizzle-orm'
 
 import { db, type DatabaseHandle } from '#db/client'
 import { rolePermissions, roles, userRoles } from '#db/schema'
+import type { ListRolesSort } from '#modules/roles/roles.schema'
 
 /**
  * Reading and writing roles and the permissions they carry.
@@ -30,21 +31,61 @@ const roleColumns = {
   isSystem: roles.isSystem,
 } as const
 
-export async function listRoles(): Promise<RoleWithPermissions[]> {
-  const rows = await db.select(roleColumns).from(roles).orderBy(asc(roles.name))
-  if (rows.length === 0) return []
+/**
+ * How many users hold a role, as a correlated subquery.
+ *
+ * It is a column here rather than the separate `countUsersByRole()` pass because the list
+ * can be sorted by it: an `ORDER BY` cannot reach a number the application computed after
+ * the rows came back.
+ */
+const usedByColumn = sql<number>`(
+  select count(*)::int from ${userRoles} where ${userRoles.roleId} = ${roles.id}
+)`
 
-  const ids = rows.map((row) => row.id)
-  const [permissions, usage] = await Promise.all([
-    loadRolePermissions(db, ids),
-    countUsersByRole(db, ids),
+/** The orderings this table offers. A whitelist, for the reason given in `users.repo.ts`. */
+const SORTABLE = {
+  name: roles.name,
+  key: roles.key,
+  usedBy: usedByColumn,
+} as const satisfies Record<ListRolesSort, SQLWrapper>
+
+export type ListRolesFilter = {
+  page: number
+  perPage: number
+  sort: ListRolesSort
+  order: 'asc' | 'desc'
+}
+
+export type ListRolesPage = { rows: RoleWithPermissions[]; total: number }
+
+export async function listRoles(filter: ListRolesFilter): Promise<ListRolesPage> {
+  const direction = filter.order === 'desc' ? desc : asc
+
+  const [rows, [counted]] = await Promise.all([
+    db
+      .select({ ...roleColumns, usedBy: usedByColumn })
+      .from(roles)
+      // `name` breaks ties so that paging is stable even when sorting by a count that
+      // several roles share — usually the count zero.
+      .orderBy(direction(SORTABLE[filter.sort]), asc(roles.name))
+      .limit(filter.perPage)
+      .offset((filter.page - 1) * filter.perPage),
+
+    db.select({ value: count() }).from(roles),
   ])
 
-  return rows.map((row) => ({
-    ...row,
-    permissions: permissions.get(row.id) ?? [],
-    usedBy: usage.get(row.id) ?? 0,
-  }))
+  const total = counted?.value ?? 0
+  if (rows.length === 0) return { rows: [], total }
+
+  const permissions = await loadRolePermissions(
+    db,
+    rows.map((row) => row.id),
+  )
+
+  return {
+    rows: rows.map((row) => ({ ...row, permissions: permissions.get(row.id) ?? [] })),
+    total,
+  }
 }
 
 export async function findRole(

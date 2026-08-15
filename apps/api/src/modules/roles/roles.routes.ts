@@ -8,7 +8,7 @@ import type { AppBindings } from '#middleware/request-context'
 import { currentAccess, requireAuth } from '#middleware/session'
 import { actorFromContext } from '#modules/audit/audit.repo'
 import { listRoles } from '#modules/roles/roles.repo'
-import { createRoleBody, updateRoleBody } from '#modules/roles/roles.schema'
+import { createRoleBody, listRolesQuery, updateRoleBody } from '#modules/roles/roles.schema'
 import { createRole, deleteRole, permissionCatalog, updateRole } from '#modules/roles/roles.service'
 
 /**
@@ -29,9 +29,17 @@ const idParam = z.object({ id: z.uuid('Not a valid role id.') })
 export const roleRoutes = new Hono<AppBindings>()
   .use('*', requireAuth())
 
-  .get('/', requirePermission('role.read'), async (c) => {
-    return c.json({ items: await listRoles() })
-  })
+  .get(
+    '/',
+    requirePermission('role.read'),
+    zValidator('query', listRolesQuery, validationHook),
+    async (c) => {
+      const query = c.req.valid('query')
+      const { rows, total } = await listRoles(query)
+
+      return c.json({ items: rows, total, page: query.page, perPage: query.perPage })
+    },
+  )
 
   /**
    * The permission catalog together with what the caller holds. Both in one response,
