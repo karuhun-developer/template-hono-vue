@@ -88,7 +88,7 @@ describe('login', () => {
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
-            error: { code: 'unauthorized', message: 'Invalid email or password.' },
+            error: { code: 'unauthorized', message: 'Wrong email or password.' },
           }),
           { status: 401, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -98,7 +98,7 @@ describe('login', () => {
     const session = useSessionStore()
     const failure = await session.login({ email: 'a@b.test', password: 'x' })
 
-    expect(failure?.message).toBe('Invalid email or password.')
+    expect(failure?.message).toBe('Wrong email or password.')
     expect(session.isAuthenticated).toBe(false)
   })
 
