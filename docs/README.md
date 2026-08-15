@@ -15,6 +15,8 @@ Start with [`architecture.md`](architecture.md). Everything else assumes it.
 | [`features/audit-log.md`](features/audit-log.md)                                                   | Recording an action, or reading the trail                    |
 | [`features/database.md`](features/database.md)                                                     | Adding a table or a column, and generating the migration     |
 | [`features/console-shell.md`](features/console-shell.md)                                           | Adding a page or a navigation item                           |
+| [`features/data-table.md`](features/data-table.md)                                                 | Building any list screen                                     |
+| [`features/theming.md`](features/theming.md)                                                       | Adding a colour, or changing the brand                       |
 | [`features/code-quality.md`](features/code-quality.md)                                             | The gate rejected something and you want to know which part  |
 | [`features/docker.md`](features/docker.md)                                                         | Adding a service, or packaging for production                |
 | **Guides** — how to extend                                                                         |                                                              |

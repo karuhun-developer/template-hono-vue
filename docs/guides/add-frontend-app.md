@@ -247,7 +247,12 @@ make dev    # api :7300 · console :7301 · portal :7302
 | `lib/api-error.ts`  | Nothing                                                              |
 | `router/index.ts`   | Your routes, with the same `beforeEach` shape                        |
 
-Then add a sign-in page (`LoginPage.vue` is a reasonable starting point) and keep the two rules:
+Two more are optional and cheap:
+
+- **`composables/useTheme.ts` + `components/ThemeToggle.vue`** — dark mode. Copy the pre-paint inline script out of `apps/console/index.html` at the same time, or every reload in dark mode flashes white. See [`../features/theming.md`](../features/theming.md).
+- **`layouts/AppShell.vue` + `components/AppSidebar.vue` + `lib/nav.ts`** — the whole shell, if the new app is another back office. The sidebar primitives are already in `@app/ui`; only `NAV_GROUPS` is app-specific.
+
+Then add a sign-in page (`LoginPage.vue` and `layouts/AuthLayout.vue` are a reasonable starting point) and keep the two rules:
 
 - `meta.public` is the exception; **the default is signed in required**.
 - `meta.permission` on a route mirrors the `requirePermission()` on the endpoint it uses.

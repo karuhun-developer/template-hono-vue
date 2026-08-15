@@ -112,6 +112,10 @@ Sign in as `admin@example.com` and open **Roles**:
 
 Both, because the matrix cannot be rendered correctly from either half alone: the first decides the rows, the second decides which ticks may be touched.
 
+`GET /roles` is paged like the user list — `page`, `perPage` (1–100, default 20), `sort` (`name` · `key` · `usedBy`) and `order` — and answers `{ items, total, page, perPage }`. `usedBy` is the number of accounts holding the role, and it is what the Delete action checks: a role in use is not deletable.
+
+> **The 100-role ceiling has one consequence worth knowing.** The user page needs the _whole_ role list — for the Role facet and for `UserFormDialog`'s checkboxes — so `UsersPage.vue` asks for `perPage: '100'` explicitly. Past a hundred roles that checkbox list stops being usable anyway and should become a search-picker. That is the point at which to change it, not before.
+
 > **None of the frontend is enforcement.** `hasPermission()`, the hidden nav items, the disabled checkboxes and `router.beforeEach` exist so nobody is offered a link that ends in a 403. **Test the real thing:** sign in as a member, open DevTools, and run
 > `await fetch('http://localhost:7300/roles', { credentials: 'include' })`.
 > A `403` means the middleware is doing its job. A `200` means the route is missing its guard and the console has been decoration all along.
@@ -122,7 +126,7 @@ Both, because the matrix cannot be rendered correctly from either half alone: th
 2. Add it to `requirePermission()` on the route that needs it, in the same commit.
 3. Consider whether a system role should hold it. Wildcard roles get it for free.
 4. `make seed` — `syncPermissionCatalog()` writes it, `topUpWildcardRoles()` grants it to Owner.
-5. If the console gains a page for it, add `meta.permission` on the route and the `permission` on the `NAV_ITEMS` entry.
+5. If the console gains a page for it, add `meta.permission` on the route and the `permission` on the `NAV_GROUPS` entry.
 6. Write the test that asserts a `403` without it.
 
 Removing one works in reverse, and `syncPermissionCatalog()` will warn about a key still in the database that no longer exists in code — it does not delete it. Deleting rows in a table that grants access is a migration you write on purpose.

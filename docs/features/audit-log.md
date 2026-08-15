@@ -66,13 +66,16 @@ Storing the whole row feels safer and is not. The entry becomes a copy of the ta
 
 `GET /audit-logs`, behind `audit.read`. Read-only — there is nothing else on the router.
 
-| Query                                           | Meaning                                 |
-| ----------------------------------------------- | --------------------------------------- |
-| `action`, `subjectType`, `subjectId`, `actorId` | Exact match, all optional               |
-| `cursor`                                        | The `nextCursor` from the previous page |
-| `limit`                                         | 1–100, default 50                       |
+| Query                   | Meaning                                 |
+| ----------------------- | --------------------------------------- |
+| `action`, `subjectType` | Exact match, optional, **repeatable**   |
+| `subjectId`, `actorId`  | Exact match, optional                   |
+| `cursor`                | The `nextCursor` from the previous page |
+| `limit`                 | 1–100, default 50                       |
 
 Every filter is an exact match. A free-text search across `before` / `after` would be a sequential scan over the largest table in the database dressed up as a feature.
+
+**Repeatable** means `?action=user.disable&action=user.enable` is read as a set and answered with `IN (…)` — `repeatable()` in `apps/api/src/lib/query.ts`. It exists because the console's facets tick more than one box, and a filter that quietly honours only the first tick is worse than one that refuses. A single value parses as it always did.
 
 **Paging is by cursor, not by page number.** The trail grows at the top while somebody reads it, and `?page=2` under those conditions quietly repeats rows it has already shown. The cursor is the id of the last row on screen — and because ids are UUIDv7, "older than this id" and "older than this moment" are the same ordering. The query asks for `limit + 1` rows: if the extra one comes back there is another page, and no `count(*)` over the whole table is needed to say so.
 
@@ -80,7 +83,16 @@ There is no `audit.service.ts`. Nothing here decides anything. Add one the momen
 
 ## The console page
 
-`AuditLogPage.vue` filters by action and subject type, and pages with **Load older entries**. `before` and `after` are rendered as raw JSON behind a toggle, on purpose: their shape differs per action, and a table built for `users` would silently drop half of a `roles` entry.
+`AuditLogPage.vue` is a `DataTable` in `cursor` mode — see [`data-table.md`](data-table.md). Its footer offers **Previous** and **Next** and no page count, because there is no honest count to print. Action and subject-type facets narrow it; `⋯` opens the entry's before/after as raw JSON in a dialog, on purpose: the shape differs per action, and a table built for `users` would silently drop half of a `roles` entry.
+
+A keyset cannot be walked backwards, so the page remembers the cursor each page started from:
+
+```ts
+const trail = ref<(string | null)[]>([null])
+const index = ref(0)
+```
+
+**Next** appends the current `nextCursor` and steps forward; **Previous** steps the index back and re-requests with a cursor already used. One array is the whole cost of offering a Previous button without inventing a page number.
 
 `ACTIONS` in that file lists the eight actions this template writes. Extend it as you add modules that record one:
 

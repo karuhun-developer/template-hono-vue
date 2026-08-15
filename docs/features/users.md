@@ -14,7 +14,7 @@ Inviting people, editing them and their roles, and switching accounts on and off
 
 | Method  | Path                | Permission     | Does                                           |
 | ------- | ------------------- | -------------- | ---------------------------------------------- |
-| `GET`   | `/users`            | `user.read`    | List, with `?q=` and `?status=`                |
+| `GET`   | `/users`            | `user.read`    | List — paged, sorted, filtered (see below)     |
 | `POST`  | `/users`            | `user.invite`  | Create as `invited`, return the token **once** |
 | `POST`  | `/users/:id/invite` | `user.invite`  | Re-issue the token; the previous link dies     |
 | `PATCH` | `/users/:id`        | `user.update`  | Name and roles                                 |
@@ -74,7 +74,30 @@ The console renders `<origin>/invitation/<token>` in `InviteTokenDialog.vue`, wh
 
 ## The list
 
-`GET /users` takes `?q=` (matched against name and email) and `?status=`. The console debounces the search by 300 ms — enough that typing "administrator" is one request rather than thirteen, short enough that it still feels immediate.
+```text
+GET /users?q=ada&status=active&status=invited&roleId=…&page=2&perPage=10&sort=email&order=desc
+    -> { "items": [ … ], "total": 34, "page": 2, "perPage": 10 }
+```
+
+| Parameter | Takes                                                     |
+| --------- | --------------------------------------------------------- |
+| `q`       | Matched against the name and the email                    |
+| `status`  | `invited` · `active` · `disabled` — **repeatable**        |
+| `roleId`  | Anyone holding any of these roles — **repeatable**        |
+| `page`    | From 1, default 1                                         |
+| `perPage` | 1–100, default 10                                         |
+| `sort`    | `name` · `email` · `status` · `lastLoginAt` · `createdAt` |
+| `order`   | `asc` · `desc`                                            |
+
+**Repeatable** means the parameter given more than once is read as a set (`?status=active&status=invited`), which is what lets the console's faceted filters tick more than one box. `repeatable()` lives in `apps/api/src/lib/query.ts`; a single value still parses exactly as before, so existing links keep working.
+
+`sort` is an **enum**, and that is the security story of this endpoint: a column name arriving as text and reaching an `ORDER BY` is an injection point, so the accepted orderings are written down in the schema and mapped to real columns in the repository. Nothing else can get near the query.
+
+`perPage` is capped at 100 for the same reason — the ceiling is what stops `?perPage=100000` from turning one request into a full table read.
+
+`total` is a `count(*)` over the **same `where`**, run alongside the page in one `Promise.all`, so the pager's "34 results" always refers to the filtered list. Filtering by `roleId` uses a subquery rather than a join over `user_roles`: a join would repeat a user once per role and inflate that count.
+
+The console debounces the search by 300 ms — enough that typing "administrator" is one request rather than thirteen, short enough that it still feels immediate — and resets `page` to 1 whenever a filter changes, since page 4 of a narrower list is rarely where anybody meant to be.
 
 `loadRoles()` failing does not fail the page: the list is still readable, and only the role filter is unavailable. A secondary request should not take the primary content down with it.
 

@@ -8,15 +8,17 @@ Everything here is deliberately small. What it gives you is the part every proje
 
 ## What's inside
 
-| Capability                                                                      | Where                                                              |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| **Session authentication** — opaque tokens, `httpOnly` cookies, invitations     | [`docs/features/auth.md`](docs/features/auth.md)                   |
-| **RBAC** — a permission catalog, custom roles, a two-directional grantable rule | [`docs/features/rbac.md`](docs/features/rbac.md)                   |
-| **User management** — invite, edit, enable, disable                             | [`docs/features/users.md`](docs/features/users.md)                 |
-| **Audit log** — append-only, written inside the transaction it describes        | [`docs/features/audit-log.md`](docs/features/audit-log.md)         |
-| **Database** — the schema, the column vocabulary, and how migrations work       | [`docs/features/database.md`](docs/features/database.md)           |
-| **Console shell** — routing, the session store, the navigation guard            | [`docs/features/console-shell.md`](docs/features/console-shell.md) |
-| **The gate** — Prettier, TypeScript, ESLint, Vitest, GitHub Actions             | [`docs/features/code-quality.md`](docs/features/code-quality.md)   |
+| Capability                                                                       | Where                                                              |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **Session authentication** — opaque tokens, `httpOnly` cookies, invitations      | [`docs/features/auth.md`](docs/features/auth.md)                   |
+| **RBAC** — a permission catalog, custom roles, a two-directional grantable rule  | [`docs/features/rbac.md`](docs/features/rbac.md)                   |
+| **User management** — invite, edit, enable, disable                              | [`docs/features/users.md`](docs/features/users.md)                 |
+| **Audit log** — append-only, written inside the transaction it describes         | [`docs/features/audit-log.md`](docs/features/audit-log.md)         |
+| **Database** — the schema, the column vocabulary, and how migrations work        | [`docs/features/database.md`](docs/features/database.md)           |
+| **Console shell** — a collapsible sidebar, routing, the session store, the guard | [`docs/features/console-shell.md`](docs/features/console-shell.md) |
+| **Data table** — sorting, faceted filters, column visibility, selection          | [`docs/features/data-table.md`](docs/features/data-table.md)       |
+| **Theming** — one token palette, light and dark, no raw colours                  | [`docs/features/theming.md`](docs/features/theming.md)             |
+| **The gate** — Prettier, TypeScript, ESLint, Vitest, GitHub Actions              | [`docs/features/code-quality.md`](docs/features/code-quality.md)   |
 
 ## Tech Stack
 

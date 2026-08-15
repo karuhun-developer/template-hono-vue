@@ -54,6 +54,8 @@ make generate name=add_settings   # a new migration
 | Touch roles or permission checks          | [`docs/features/rbac.md`](docs/features/rbac.md)                                                |
 | Touch the audit trail                     | [`docs/features/audit-log.md`](docs/features/audit-log.md)                                      |
 | Add a console page or route               | [`docs/features/console-shell.md`](docs/features/console-shell.md)                              |
+| Build a list screen                       | [`docs/features/data-table.md`](docs/features/data-table.md) — never hand-roll a second table   |
+| Add a colour, or change the brand         | [`docs/features/theming.md`](docs/features/theming.md) — tokens only, in both palettes          |
 | Change lint, types, tests or CI           | [`docs/features/code-quality.md`](docs/features/code-quality.md)                                |
 | Argue for JWTs, OpenAPI, or multi-tenancy | [`docs/decisions/`](docs/decisions/) — the ADR may already answer you                           |
 

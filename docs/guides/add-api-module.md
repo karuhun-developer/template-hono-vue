@@ -276,7 +276,7 @@ The 403 is not optional. It is the one that fails if somebody removes the guard,
 export type AppSettings = InferResponseType<typeof api.settings.$get>['settings']
 ```
 
-Then `SettingsPage.vue`, the route (`meta: { title: 'Settings', permission: 'setting.manage' }`), and the `NAV_ITEMS` entry — **in the same commit as the page**. Details are in [`../features/console-shell.md`](../features/console-shell.md).
+Then `SettingsPage.vue`, the route (`meta: { title: 'Settings', permission: 'setting.manage' }`), and the `NAV_GROUPS` entry — **in the same commit as the page**. Details are in [`../features/console-shell.md`](../features/console-shell.md).
 
 Note that `meta.permission` here is `setting.manage` even though reading is open to everyone: a page whose only purpose is editing should not be offered to somebody who cannot save.
 

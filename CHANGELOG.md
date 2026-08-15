@@ -13,11 +13,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `packages/ui`: table, dropdown menu, select, avatar, popover, collapsible and tooltip primitives.
+- `packages/ui`: the sidebar primitives — a collapsible, keyboard-toggled (`Ctrl/Cmd+B`) sidebar that
+  renders itself into a sheet below `md`.
+- `packages/ui`: the data table — sortable headers, faceted filters, column visibility, row selection
+  with `Shift`-ranges, skeleton loading rows and three pager modes. See
+  [`docs/features/data-table.md`](docs/features/data-table.md).
+- Dark mode: `useTheme()`, a `ThemeToggle`, and a pre-paint script so a reload does not flash. See
+  [`docs/features/theming.md`](docs/features/theming.md).
+- `GET /users` and `GET /roles` take `page`, `perPage`, `sort` and `order`, and answer
+  `{ items, total, page, perPage }`.
+- `GET /users?roleId=` filters by role.
+- `status`, `roleId`, `action` and `subjectType` may be given more than once and are read as a set.
+
 ### Changed
+
+- The console shell is a grouped, collapsible sidebar with an account menu in its footer; navigation
+  is `NAV_GROUPS` rather than a flat `NAV_ITEMS`.
+- The user, role and audit-log pages are data tables rather than stacks of cards.
+- Signing in and accepting an invitation share a split-screen `AuthLayout`.
 
 ### Deprecated
 
 ### Removed
+
+- The mobile bottom bar — the sidebar renders in a sheet instead, so there is one navigation.
+- `AccountSheet.vue`, replaced by the account dropdown in the sidebar footer.
+- `NativeSelect.vue`, which no page used once the filters became facets.
 
 ### Fixed
 
