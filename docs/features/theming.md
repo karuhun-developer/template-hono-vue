@@ -1,6 +1,6 @@
 # Theming and dark mode
 
-One palette, defined once, switched by a class on `<html>`. No component knows which theme it is in.
+One palette — shadcn's **zinc** — defined once and switched by a class on `<html>`. No component knows which theme it is in.
 
 | Concern                | File                                          |
 | ---------------------- | --------------------------------------------- |
@@ -12,8 +12,8 @@ One palette, defined once, switched by a class on `<html>`. No component knows w
 ## Three layers
 
 ```text
-:root { --primary: oklch(0.55 0.18 265) }   ← the value, per palette
-.dark { --primary: oklch(0.68 0.16 265) }
+:root { --primary: oklch(0.21 0.006 285.885) }   ← the value, per palette
+.dark { --primary: oklch(0.92 0.004 286.32) }
 
 @theme inline { --color-primary: var(--primary) }   ← the bridge to Tailwind
 
@@ -40,7 +40,11 @@ Tailwind's own palette is fixed at one lightness. `bg-green-100` is a light chip
 2. Add `--color-thing: var(--thing)` in the `@theme inline` block. That is what makes `bg-thing` exist.
 3. Use it. Do not use it before step 1 — Tailwind silently drops a class it cannot resolve.
 
-Changing the brand is `--primary`, `--ring` and `--sidebar-primary`, in both palettes. Nothing else.
+## The brand
+
+There isn't one, on purpose. In zinc the primary is near-black in light mode and near-white in dark, so buttons and the sidebar's active row read as emphasis rather than as a colour, and nothing on screen competes with the data — which is the right default for a template that has no idea what it is going to become.
+
+Giving it a hue is `--primary`, `--ring` and `--sidebar-primary` in **both** blocks, and nothing else. Note that the primary inverts between the two palettes: anything painted `bg-primary` across a large area — a split-screen panel, a hero — will flip from near-black to near-white with it. `bg-muted` is the token for a large surface that should stay quiet in both, which is why `AuthLayout` uses it.
 
 ## The state
 

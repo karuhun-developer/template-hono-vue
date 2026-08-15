@@ -21,11 +21,16 @@ defineProps<{ heading: string; description: string }>()
 
 <template>
   <div class="grid min-h-dvh lg:grid-cols-2">
-    <div
-      class="bg-primary text-primary-foreground relative hidden flex-col justify-between p-10 lg:flex"
-    >
+    <!--
+      `bg-muted` rather than `bg-primary`: in the zinc palette the primary is near-black in
+      light mode and near-white in dark, so a panel painted with it would turn into a white
+      slab at night — the one screen where that is least welcome.
+    -->
+    <div class="bg-muted relative hidden flex-col justify-between border-r p-10 lg:flex">
       <div class="flex items-center gap-2 text-lg font-medium">
-        <span class="bg-primary-foreground/10 flex size-8 items-center justify-center rounded-lg">
+        <span
+          class="bg-primary text-primary-foreground flex size-8 items-center justify-center rounded-lg"
+        >
           <Command class="size-4" />
         </span>
         Console
@@ -36,7 +41,7 @@ defineProps<{ heading: string; description: string }>()
           Accounts, roles and a trail of who changed what — the part every project rebuilds, already
           built.
         </p>
-        <footer class="text-primary-foreground/70 text-sm">Hono + Vue template</footer>
+        <footer class="text-muted-foreground text-sm">Hono + Vue template</footer>
       </blockquote>
     </div>
 
