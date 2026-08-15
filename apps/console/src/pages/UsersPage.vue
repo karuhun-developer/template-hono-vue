@@ -4,9 +4,9 @@ import { UserPlus } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 
 import FailureAlert from '@/components/FailureAlert.vue'
-import InviteTokenDialog from '@/components/InviteTokenDialog.vue'
-import UserFormDialog from '@/components/UserFormDialog.vue'
-import { resendInvite, setUserStatus, type UserSummary } from '@/features/users/api'
+import { resendInvite, setUserStatus, type UserSaved, type UserSummary } from '@/features/users/api'
+import InviteTokenDialog from '@/features/users/InviteTokenDialog.vue'
+import UserFormDialog from '@/features/users/UserFormDialog.vue'
 import UsersTable from '@/features/users/UsersTable.vue'
 import { useUsersList } from '@/features/users/useUsersList'
 import { api } from '@/lib/api'
@@ -69,7 +69,7 @@ function openEdit(user: UserSummary): void {
   formOpen.value = true
 }
 
-function onSaved(result: { user: UserSummary; inviteToken?: string; inviteExpiresAt?: string }) {
+function onSaved(result: UserSaved): void {
   void list.reload()
 
   if (result.inviteToken) showToken(result.user.email, result.inviteToken, result.inviteExpiresAt)

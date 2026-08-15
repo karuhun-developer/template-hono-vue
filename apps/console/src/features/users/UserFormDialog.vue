@@ -15,9 +15,9 @@ import { computed, ref, watch } from 'vue'
 
 import FailureAlert from '@/components/FailureAlert.vue'
 import RolesEditor from '@/components/RolesEditor.vue'
-import { api } from '@/lib/api'
-import { networkFailure, readApiError, type ApiFailure } from '@/lib/api-error'
-import type { RoleSummary, UserSummary } from '@/lib/models'
+import { inviteUser, updateUser, type UserSaved, type UserSummary } from '@/features/users/api'
+import type { ApiFailure } from '@/lib/api-error'
+import type { RoleSummary } from '@/lib/models'
 
 /**
  * Invite and edit, in one dialog.
@@ -27,6 +27,10 @@ import type { RoleSummary, UserSummary } from '@/lib/models'
  * — it is both the login identity and the target of the unique index on `lower(email)`, so
  * changing it means handing the account to a different person, and that should be a new
  * invitation rather than an edit.
+ *
+ * It lives in `features/users/` rather than `components/` because it belongs to one module:
+ * any screen that needs to invite or edit somebody imports it from here, and gets the calls
+ * and the types along with it.
  */
 
 const props = defineProps<{
@@ -37,7 +41,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:open': [boolean]
-  saved: [{ user: UserSummary; inviteToken?: string; inviteExpiresAt?: string }]
+  saved: [UserSaved]
 }>()
 
 const mode = computed<'invite' | 'edit'>(() => (props.user === null ? 'invite' : 'edit'))
@@ -81,45 +85,25 @@ async function submit(): Promise<void> {
   submitting.value = true
   failure.value = null
 
-  try {
-    const result = await (props.user === null ? invite() : update(props.user.id))
-    if ('failure' in result) {
-      failure.value = result.failure
-      return
-    }
+  const user = props.user
+  const result =
+    user === null
+      ? await inviteUser({
+          email: email.value.trim(),
+          name: name.value.trim(),
+          roleIds: roleIds.value,
+        })
+      : await updateUser(user.id, { name: name.value.trim(), roleIds: roleIds.value })
 
-    emit('saved', result)
-    emit('update:open', false)
-  } catch (error) {
-    failure.value = networkFailure(error)
-  } finally {
-    submitting.value = false
+  submitting.value = false
+
+  if ('failure' in result) {
+    failure.value = result.failure
+    return
   }
-}
 
-type SaveResult =
-  { user: UserSummary; inviteToken?: string; inviteExpiresAt?: string } | { failure: ApiFailure }
-
-async function invite(): Promise<SaveResult> {
-  const response = await api.users.$post({
-    json: { email: email.value.trim(), name: name.value.trim(), roleIds: roleIds.value },
-  })
-
-  if (!response.ok) return { failure: await readApiError(response) }
-
-  const body = await response.json()
-  return { user: body.user, inviteToken: body.inviteToken, inviteExpiresAt: body.inviteExpiresAt }
-}
-
-async function update(id: string): Promise<SaveResult> {
-  const response = await api.users[':id'].$patch({
-    param: { id },
-    // Roles are sent whole, never as a difference — see the note in `RolesEditor.vue`.
-    json: { name: name.value.trim(), roleIds: roleIds.value },
-  })
-
-  if (!response.ok) return { failure: await readApiError(response) }
-  return { user: (await response.json()).user }
+  emit('saved', result.data)
+  emit('update:open', false)
 }
 </script>
 

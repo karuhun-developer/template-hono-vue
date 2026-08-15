@@ -53,6 +53,34 @@ export function fetchUsers(
   )
 }
 
+/**
+ * What either write hands back.
+ *
+ * `inviteToken` exists only on the invite path, and only for as long as the response
+ * carries it — the server keeps a hash, so this is the single moment it can be read.
+ */
+export type UserSaved = {
+  user: UserSummary
+  inviteToken?: string
+  inviteExpiresAt?: string
+}
+
+export function inviteUser(input: {
+  email: string
+  name: string
+  roleIds: string[]
+}): Promise<ActionResult<InferResponseType<typeof api.users.$post>>> {
+  return readAction(() => api.users.$post({ json: input }))
+}
+
+export function updateUser(
+  id: string,
+  input: { name: string; roleIds: string[] },
+): Promise<ActionResult<InferResponseType<(typeof api.users)[':id']['$patch']>>> {
+  // Roles are sent whole, never as a difference — see the note in `RolesEditor.vue`.
+  return readAction(() => api.users[':id'].$patch({ param: { id }, json: input }))
+}
+
 export function resendInvite(
   id: string,
 ): Promise<ActionResult<InferResponseType<(typeof api.users)[':id']['invite']['$post']>>> {
