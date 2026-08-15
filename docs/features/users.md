@@ -1,6 +1,6 @@
 # User management
 
-Inviting people, creating them outright, editing them and their roles, and switching accounts on and off. Everything here writes an audit entry.
+Inviting people, creating them outright, editing them and their roles, switching accounts on and off, and removing and restoring them. Everything here writes an audit entry.
 
 | Concern   | File                                          |
 | --------- | --------------------------------------------- |
@@ -12,15 +12,17 @@ Inviting people, creating them outright, editing them and their roles, and switc
 
 ## Endpoints
 
-| Method  | Path                | Permission     | Does                                           |
-| ------- | ------------------- | -------------- | ---------------------------------------------- |
-| `GET`   | `/users`            | `user.read`    | List — paged, sorted, filtered (see below)     |
-| `GET`   | `/users/:id`        | `user.read`    | One user, in the shape a list row has          |
-| `POST`  | `/users`            | `user.invite`  | Create as `invited`, return the token **once** |
-| `POST`  | `/users/create`     | `user.create`  | Create as `active`, with a password            |
-| `POST`  | `/users/:id/invite` | `user.invite`  | Re-issue the token; the previous link dies     |
-| `PATCH` | `/users/:id`        | `user.update`  | Name and roles                                 |
-| `POST`  | `/users/:id/status` | `user.disable` | `active` ⇄ `disabled`                          |
+| Method   | Path                 | Permission     | Does                                           |
+| -------- | -------------------- | -------------- | ---------------------------------------------- |
+| `GET`    | `/users`             | `user.read`    | List — paged, sorted, filtered (see below)     |
+| `GET`    | `/users/:id`         | `user.read`    | One user, in the shape a list row has          |
+| `POST`   | `/users`             | `user.invite`  | Create as `invited`, return the token **once** |
+| `POST`   | `/users/create`      | `user.create`  | Create as `active`, with a password            |
+| `POST`   | `/users/:id/invite`  | `user.invite`  | Re-issue the token; the previous link dies     |
+| `PATCH`  | `/users/:id`         | `user.update`  | Name and roles                                 |
+| `POST`   | `/users/:id/status`  | `user.disable` | `active` ⇄ `disabled`                          |
+| `DELETE` | `/users/:id`         | `user.delete`  | Soft delete — sets `deleted_at`                |
+| `POST`   | `/users/:id/restore` | `user.delete`  | Clears it again                                |
 
 Status has **its own endpoint and its own permission** rather than being a field on `PATCH /users/:id`. Locking somebody out is not the same kind of act as correcting the spelling of their name, and the audit entry it writes should not depend on anyone remembering to look at a `status` key in a request body.
 
@@ -40,26 +42,30 @@ Both routes run `assertRolesGrantable()` first, for the reason in the next secti
 ## The lifecycle
 
 ```text
-                POST /users                    POST /users/create
-                     │                                 │
-                     ▼                                 ▼
-   ┌────────────┐  accept invitation   ┌───────────┐
-   │  invited   │ ───────────────────► │  active   │
-   └────────────┘  (sets first password)└───────────┘
-         │                              │        ▲
-         │ POST /users/:id/invite       │        │
-         │ (new token, old link dies)   │ status │ status
-         ▼                              ▼        │
-   ┌────────────┐                  ┌────────────┐│
-   │  invited   │                  │  disabled  ├┘
-   └────────────┘                  └────────────┘
-                                          │
-                                    deleted_at (soft delete)
+      POST /users                          POST /users/create
+           │                                        │
+           ▼          accept invitation             ▼
+    ┌────────────┐  (sets first password)   ┌────────────┐
+    │  invited   │ ───────────────────────► │   active   │
+    └────────────┘                          └────────────┘
+           │                                   │      ▲
+           │ POST /users/:id/invite            │      │
+           │ (new token, old link dies)        │ status│ status
+           ▼                                   ▼      │
+    ┌────────────┐                          ┌────────────┐
+    │  invited   │                          │  disabled  │
+    └────────────┘                          └────────────┘
+           └───────────────────┬───────────────────┘
+                               │  DELETE /users/:id
+                               ▼  POST /users/:id/restore
+                     ┌───────────────────────┐
+                     │   deleted_at is set   │
+                     └───────────────────────┘
 ```
 
 - **`invited` → `active`** happens only by accepting the invitation. `POST /users/:id/status` with `active` on an invited account is refused with _"This invitation has not been accepted yet — re-send it instead."_ Flipping the status directly would activate an account with a null password, which is an account nobody can sign into.
 - **`disabled`** is reversible and leaves everything intact. It is the answer to "somebody left", not a delete.
-- **`deleted_at`** exists on the table but no endpoint sets it. A person who leaves is still named by old audit entries, so the row has to stay referable — and deciding when a row may truly go is a policy question your project answers, not a starter.
+- **`deleted_at`** is set by `DELETE /users/:id` and cleared by its mirror. The row never actually goes: a person who left is still named by old audit entries, and `user_roles.role_id` is `ON DELETE RESTRICT` on purpose. Deciding when a row may truly be purged is a retention policy your project writes, not one a starter answers.
 - An invitation lives **72 hours**: long enough to survive a weekend, short enough that a link left in a chat history does not work forever.
 
 ## The two rules that are not queries
@@ -68,13 +74,24 @@ Both routes run `assertRolesGrantable()` first, for the reason in the next secti
 
 It applies to inviting, to creating **and** to editing, because the escalation works from every one of those directions.
 
-**2. Nobody can disable their own account.** The button that would undo it is behind the access they just took away from themselves. The API refuses with a `400`; the console hides the button on your own row, so the message is a backstop rather than the primary experience.
+**2. Nobody can disable or delete their own account.** The button that would undo it is behind the access they just took away from themselves. The API refuses with a `400`; the console hides the button on your own row, so the message is a backstop rather than the primary experience.
 
-## Disabling kills sessions on the next request
+That second refusal is also what keeps an installation repairable. Whoever reaches `DELETE /users/:id` holds `user.delete` and is signed in, so they are themselves an account able to manage users — which means **deleting somebody else can never remove the last one**. There is deliberately no separate "is this the last manager" count: given the self-delete rule it could never fire, and a guard that cannot fire reads as protection while being none.
 
-There is no revocation sweep, and there is nothing to remember. `findLiveSession()` joins `users` with `status = 'active' AND deleted_at IS NULL`, so a disabled person's next request finds no live session, gets a `401`, and the console sends them to the sign-in page.
+## Deleting is soft, and the address stays taken
 
-One condition in SQL, holding for every code path, beats a revocation pass that some future endpoint forgets to call.
+`DELETE /users/:id` sets `deleted_at`; `POST /users/:id/restore` clears it and the account comes back with the status it had. Both sit behind the **same permission**, because being able to remove an account without being able to put it back is a worse position than not being able to remove it at all.
+
+Two consequences worth knowing:
+
+- **Deleting an already-deleted account is a `200`, not an error**, and so is restoring a live one. A repeated request that changes nothing is not a failure — the same reasoning that makes `POST /users/:id/status` return early when the status already matches.
+- **`users_email_key` has no `deleted_at` predicate**, so a departed person's address stays reserved. Re-inviting it is a `409` saying _"That email address belongs to a deleted account. Restore it instead."_ Making the index partial would look like a tidy-up and would let a brand-new account inherit somebody else's audit trail, because `audit_logs.actor_label` stores the email as it read at the time.
+
+## Disabling and deleting kill sessions on the next request
+
+There is no revocation sweep, and there is nothing to remember. `findLiveSession()` joins `users` with `status = 'active' AND deleted_at IS NULL`, so a disabled **or deleted** person's next request finds no live session, gets a `401`, and the console sends them to the sign-in page.
+
+One condition in SQL, holding for every code path, beats a revocation pass that some future endpoint forgets to call — which is also why deleting does not add one. A second mechanism doing the same job is how the first stops being trusted.
 
 ## Invitation tokens
 
@@ -94,15 +111,18 @@ GET /users?q=ada&status=active&status=invited&roleId=…&page=2&perPage=10&sort=
     -> { "items": [ … ], "total": 34, "page": 2, "perPage": 10 }
 ```
 
-| Parameter | Takes                                                     |
-| --------- | --------------------------------------------------------- |
-| `q`       | Matched against the name and the email                    |
-| `status`  | `invited` · `active` · `disabled` — **repeatable**        |
-| `roleId`  | Anyone holding any of these roles — **repeatable**        |
-| `page`    | From 1, default 1                                         |
-| `perPage` | 1–100, default 10                                         |
-| `sort`    | `name` · `email` · `status` · `lastLoginAt` · `createdAt` |
-| `order`   | `asc` · `desc`                                            |
+| Parameter        | Takes                                                     |
+| ---------------- | --------------------------------------------------------- |
+| `q`              | Matched against the name and the email                    |
+| `status`         | `invited` · `active` · `disabled` — **repeatable**        |
+| `roleId`         | Anyone holding any of these roles — **repeatable**        |
+| `includeDeleted` | `true` · `false` (default) — show soft-deleted rows too   |
+| `page`           | From 1, default 1                                         |
+| `perPage`        | 1–100, default 10                                         |
+| `sort`           | `name` · `email` · `status` · `lastLoginAt` · `createdAt` |
+| `order`          | `asc` · `desc`                                            |
+
+`includeDeleted` is an **enum of two strings**, not a coerced boolean: `z.coerce.boolean()` reads the string `"false"` as `true` — every non-empty string is truthy — so a client that spells the default out would get the opposite of what it asked for.
 
 **Repeatable** means the parameter given more than once is read as a set (`?status=active&status=invited`), which is what lets the console's faceted filters tick more than one box. `repeatable()` lives in `apps/api/src/lib/query.ts`; a single value still parses exactly as before, so existing links keep working.
 

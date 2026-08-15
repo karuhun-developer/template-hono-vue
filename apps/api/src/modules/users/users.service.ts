@@ -11,7 +11,7 @@ import { type AccessContext } from '#modules/rbac/rbac.repo'
 import { loadRolePermissions } from '#modules/roles/roles.repo'
 import { assertGrantable } from '#modules/roles/roles.service'
 import {
-  emailTaken,
+  findByEmail,
   findUser,
   listUsers,
   replaceUserRoles,
@@ -33,8 +33,9 @@ import type {
  * 1. **Which roles may be handed out.** Nobody can give away a permission they do not hold
  *    — otherwise `user.invite` quietly means "may become owner": create an account, give
  *    it the Owner role, sign in as it.
- * 2. **Nobody can disable themselves.** The button that would undo it is behind the access
- *    they just took away from themselves.
+ * 2. **Nobody can disable or delete themselves.** The button that would undo it is behind
+ *    the access they just took away from themselves — and, as a consequence, an
+ *    installation can never be left without an account able to manage users.
  */
 
 /**
@@ -70,6 +71,7 @@ export async function listVisibleUsers(query: ListUsersQuery): Promise<UserListP
     status: query.status,
     q: query.q,
     roleId: query.roleId,
+    includeDeleted: query.includeDeleted,
     page: query.page,
     perPage: query.perPage,
     sort: query.sort,
@@ -85,9 +87,13 @@ export async function listVisibleUsers(query: ListUsersQuery): Promise<UserListP
  * Answers with the same shape a row in the list has, so a page that opens a record does not
  * have to reconcile two slightly different users. A `404` rather than an empty body: "no
  * such user" is not a successful read.
+ *
+ * Soft-deleted accounts are included, because `?includeDeleted=true` puts them in the list
+ * and a row the list just showed must not 404 when it is opened. The `deletedAt` field says
+ * which kind of row this is.
  */
 export async function getUser(userId: string): Promise<UserWithRoles> {
-  const user = await findUser(db, userId)
+  const user = await findUser(db, userId, { includeDeleted: true })
   if (!user) throw notFound('User not found.')
   return user
 }
@@ -109,9 +115,7 @@ export async function createUser(
 ): Promise<UserWithRoles> {
   await assertRolesGrantable(access, body.roleIds)
 
-  if (await emailTaken(db, body.email)) {
-    throw conflict('That email address already belongs to someone here.')
-  }
+  await assertEmailAvailable(body.email)
 
   /**
    * Hashed **before** the transaction opens. Argon2id is deliberately ~50 ms of CPU, and
@@ -159,12 +163,7 @@ export async function inviteUser(
 ): Promise<InviteResult> {
   await assertRolesGrantable(access, body.roleIds)
 
-  if (await emailTaken(db, body.email)) {
-    // A specific message is fine here: whoever is asking is already inside the application
-    // and entitled to know who else is. The endpoint that has to stay vague is the login
-    // one, not this.
-    throw conflict('That email address already belongs to someone here.')
-  }
+  await assertEmailAvailable(body.email)
 
   const invite = newInvite()
 
@@ -331,7 +330,126 @@ export async function setUserStatus(
   })
 }
 
+/**
+ * Soft-delete an account.
+ *
+ * Soft only, and there is no hard delete anywhere in this module. Old audit entries name
+ * people who have left, and `user_roles.role_id` is `ON DELETE RESTRICT` on purpose — a row
+ * that vanishes takes its history's meaning with it. When a row may truly go is a retention
+ * policy your project writes, not one a starter answers for you.
+ *
+ * Like disabling, this sweeps **no sessions**. `findLiveSession()` already joins
+ * `deleted_at IS NULL`, so the next request a deleted person makes finds nothing and gets a
+ * `401`. A second mechanism doing the same job is how the first stops being trusted.
+ */
+export async function deleteUser(
+  access: AccessContext,
+  actor: AuditActor,
+  userId: string,
+): Promise<UserWithRoles> {
+  const target = await findUser(db, userId, { includeDeleted: true })
+  if (!target) throw notFound('User not found.')
+
+  if (userId === access.userId) {
+    // The same reasoning as self-disable: the endpoint that would undo it is behind the
+    // access just removed.
+    //
+    // This one refusal is also what keeps an installation repairable. Whoever reaches this
+    // route holds `user.delete` and is signed in, so they are themselves a live holder of
+    // it — which means deleting *somebody else* can never remove the last account able to
+    // manage users. A separate "is this the last manager" count would read as protection
+    // while being unreachable, and an unreachable guard is a comfort, not a safeguard.
+    throw badRequest('You cannot delete your own account.')
+  }
+
+  // Already gone. Answering with the row rather than an error matches `setUserStatus`,
+  // which returns early when the status already is what was asked for: a repeated request
+  // that changes nothing is not a failure.
+  if (target.deletedAt) return target
+
+  return db.transaction(async (tx) => {
+    await tx
+      .update(users)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+
+    await recordAudit(tx, actor, {
+      action: 'user.delete',
+      subjectType: 'users',
+      subjectId: target.id,
+      subjectLabel: target.email,
+      before: { status: target.status, deletedAt: null },
+      after: { status: target.status, deleted: true },
+    })
+
+    const saved = await findUser(tx, userId, { includeDeleted: true })
+    if (!saved) throw new Error('the user could not be read back')
+    return saved
+  })
+}
+
+/**
+ * Undo a soft delete.
+ *
+ * Nothing has to be reserved for this to work: `users_email_key` deliberately has **no**
+ * `deleted_at` predicate, so the address stayed taken the whole time and cannot have been
+ * handed to somebody else in the meantime. That is also why re-inviting a deleted address
+ * is a `409` pointing here rather than a second account — `audit_logs.actor_label` stores
+ * the email as it read at the time, so a new account on an old address would inherit a
+ * departed person's trail.
+ *
+ * The status the account had is the status it comes back with. A disabled person who is
+ * deleted and restored is still disabled; restoring is not a way to skip a decision.
+ */
+export async function restoreUser(actor: AuditActor, userId: string): Promise<UserWithRoles> {
+  const target = await findUser(db, userId, { includeDeleted: true })
+  if (!target) throw notFound('User not found.')
+
+  if (!target.deletedAt) return target
+
+  return db.transaction(async (tx) => {
+    await tx
+      .update(users)
+      .set({ deletedAt: null, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+
+    await recordAudit(tx, actor, {
+      action: 'user.restore',
+      subjectType: 'users',
+      subjectId: target.id,
+      subjectLabel: target.email,
+      before: { deleted: true },
+      after: { deleted: false, status: target.status },
+    })
+
+    const saved = await findUser(tx, userId)
+    if (!saved) throw new Error('the user could not be read back')
+    return saved
+  })
+}
+
 // --- Guards -----------------------------------------------------------------
+
+/**
+ * Is this address free to hand to a new account?
+ *
+ * Two answers, because they need different words. An address in use belongs to somebody who
+ * is here; an address on a soft-deleted row belongs to somebody who left, and the thing to
+ * do with it is restore that account rather than create a second one on the same address.
+ *
+ * A specific message is fine on both: whoever is asking is already inside the application
+ * and entitled to know who else is. The endpoint that has to stay vague is the sign-in one.
+ */
+async function assertEmailAvailable(address: string): Promise<void> {
+  const existing = await findByEmail(db, address)
+  if (!existing) return
+
+  if (existing.deletedAt) {
+    throw conflict('That email address belongs to a deleted account. Restore it instead.')
+  }
+
+  throw conflict('That email address already belongs to someone here.')
+}
 
 /**
  * May the caller hand out these roles?

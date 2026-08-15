@@ -15,10 +15,12 @@ import {
 } from '#modules/users/users.schema'
 import {
   createUser,
+  deleteUser,
   getUser,
   inviteUser,
   listVisibleUsers,
   resendInvite,
+  restoreUser,
   setUserStatus,
   updateUser,
 } from '#modules/users/users.service'
@@ -146,6 +148,35 @@ export const userRoutes = new Hono<AppBindings>()
       )
 
       c.get('logger').info({ userId: user.id, status: user.status }, 'user status changed')
+      return c.json({ user })
+    },
+  )
+
+  /**
+   * Deleting is soft, and restoring is its mirror — so both sit behind the same permission.
+   * Splitting them would mean somebody could remove an account and then be unable to put it
+   * back, which is a worse position than not being allowed to remove it at all.
+   */
+  .delete(
+    '/:id',
+    requirePermission('user.delete'),
+    zValidator('param', idParam, validationHook),
+    async (c) => {
+      const user = await deleteUser(currentAccess(c), actorFromContext(c), c.req.valid('param').id)
+
+      c.get('logger').info({ userId: user.id }, 'user deleted')
+      return c.json({ user })
+    },
+  )
+
+  .post(
+    '/:id/restore',
+    requirePermission('user.delete'),
+    zValidator('param', idParam, validationHook),
+    async (c) => {
+      const user = await restoreUser(actorFromContext(c), c.req.valid('param').id)
+
+      c.get('logger').info({ userId: user.id }, 'user restored')
       return c.json({ user })
     },
   )

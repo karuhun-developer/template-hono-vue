@@ -54,6 +54,7 @@ beforeAll(async () => {
     'user.create',
     'user.update',
     'user.disable',
+    'user.delete',
     'role.read',
     'role.manage',
     'audit.read',
@@ -524,6 +525,130 @@ describe('POST /users/:id/invite', () => {
       cookie: ownerCookie,
     })
 
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('DELETE /users/:id and POST /users/:id/restore', () => {
+  const LEAVER = emailFor(TAG, 'leaver')
+  let leaverId: string
+  let leaverCookie: string
+
+  beforeAll(async () => {
+    leaverId = await createUser(LEAVER, { name: 'Leaver', roleIds: [plainRoleId] })
+    leaverCookie = await login(app, LEAVER)
+  })
+
+  it('needs user.delete, which the recruiter does not hold', async () => {
+    const removed = await request(app, `/users/${leaverId}`, {
+      method: 'DELETE',
+      cookie: recruiterCookie,
+    })
+    expect(removed.status).toBe(403)
+
+    const restored = await request(app, `/users/${leaverId}/restore`, {
+      method: 'POST',
+      cookie: recruiterCookie,
+    })
+    expect(restored.status).toBe(403)
+  })
+
+  /**
+   * And this refusal is what keeps an installation repairable: whoever can reach this route
+   * holds `user.delete` and is signed in, so deleting somebody else can never remove the
+   * last account able to manage users.
+   */
+  it('refuses to delete your own account', async () => {
+    const res = await request(app, `/users/${ownerId}`, { method: 'DELETE', cookie: ownerCookie })
+    expect(res.status).toBe(400)
+  })
+
+  /**
+   * The property worth having a real database for, and the twin of the disable test above:
+   * no session sweep is written, and the session dies anyway — `findLiveSession()` joins
+   * `deleted_at IS NULL`.
+   */
+  it('hides the row and kills the deleted user’s session on their very next request', async () => {
+    expect((await request(app, '/users', { cookie: leaverCookie })).status).toBe(200)
+
+    const res = await request(app, `/users/${leaverId}`, { method: 'DELETE', cookie: ownerCookie })
+    expect(res.status).toBe(200)
+
+    const body = (await res.json()) as { user: { deletedAt: string | null } }
+    expect(body.user.deletedAt).not.toBeNull()
+
+    const list = (await (
+      await request(app, '/users?perPage=100', { cookie: ownerCookie })
+    ).json()) as Page
+    expect(list.items.map((item) => item.email)).not.toContain(LEAVER)
+
+    expect((await request(app, '/users', { cookie: leaverCookie })).status).toBe(401)
+  })
+
+  it('shows deleted accounts only when they are asked for', async () => {
+    const res = await request(app, '/users?perPage=100&includeDeleted=true', {
+      cookie: ownerCookie,
+    })
+    const body = (await res.json()) as Page
+
+    expect(body.items.map((item) => item.email)).toContain(LEAVER)
+  })
+
+  /** A row the list can show must not 404 when it is opened. */
+  it('still answers GET /users/:id for a deleted account', async () => {
+    const res = await request(app, `/users/${leaverId}`, { cookie: ownerCookie })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ user: { email: LEAVER } })
+  })
+
+  it('deletes an already deleted account without complaining', async () => {
+    const res = await request(app, `/users/${leaverId}`, { method: 'DELETE', cookie: ownerCookie })
+    expect(res.status).toBe(200)
+  })
+
+  /**
+   * The address stays reserved on purpose — `users_email_key` has no `deleted_at`
+   * predicate. Releasing it would let a brand-new account inherit a departed person's audit
+   * trail, because `audit_logs.actor_label` stores the email as it read at the time.
+   */
+  it('refuses to re-invite a deleted address, and says to restore it instead', async () => {
+    const res = await request(app, '/users', {
+      method: 'POST',
+      cookie: ownerCookie,
+      body: { email: LEAVER, name: 'Leaver Again', roleIds: [plainRoleId] },
+    })
+
+    expect(res.status).toBe(409)
+    expect(await res.text()).toContain('Restore it instead.')
+  })
+
+  it('restores the account, and its owner can sign in afresh', async () => {
+    const res = await request(app, `/users/${leaverId}/restore`, {
+      method: 'POST',
+      cookie: ownerCookie,
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ user: { deletedAt: null, status: 'active' } })
+
+    await expect(login(app, LEAVER)).resolves.toBeTruthy()
+  })
+
+  it('restores an account that was never deleted without complaining', async () => {
+    const res = await request(app, `/users/${leaverId}/restore`, {
+      method: 'POST',
+      cookie: ownerCookie,
+    })
+
+    expect(res.status).toBe(200)
+  })
+
+  /**
+   * `z.coerce.boolean()` would read the string `"false"` as `true`, so the parameter is an
+   * enum of two strings — and anything else is a validation failure rather than a guess.
+   */
+  it('refuses an includeDeleted that is not a boolean', async () => {
+    const res = await request(app, '/users?includeDeleted=notabool', { cookie: ownerCookie })
     expect(res.status).toBe(400)
   })
 })

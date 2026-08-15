@@ -68,6 +68,18 @@ export const listUsersQuery = z.object({
   /** Everyone holding any of these roles. Exact match on the id — role names repeat. */
   roleId: repeatable(uuid).optional(),
 
+  /**
+   * Show soft-deleted accounts too.
+   *
+   * An enum of two strings rather than `z.coerce.boolean()`, which reads the string
+   * `"false"` as `true` — every non-empty string is truthy — and would turn "hide the
+   * deleted rows" into "show them" for any client that spells the default out.
+   */
+  includeDeleted: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+
   /** Coerced because query strings are text; capped for the reason given on `perPage`. */
   page: z.coerce.number().int().min(1).default(1),
   /**
