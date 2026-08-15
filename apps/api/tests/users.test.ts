@@ -55,6 +55,7 @@ beforeAll(async () => {
     'user.update',
     'user.disable',
     'user.delete',
+    'user.reset_password',
     'role.read',
     'role.manage',
     'audit.read',
@@ -650,5 +651,111 @@ describe('DELETE /users/:id and POST /users/:id/restore', () => {
   it('refuses an includeDeleted that is not a boolean', async () => {
     const res = await request(app, '/users?includeDeleted=notabool', { cookie: ownerCookie })
     expect(res.status).toBe(400)
+  })
+})
+
+describe('POST /users/:id/reset-password', () => {
+  /** Holds the reset key, and nothing else worth taking — the escalation subject here. */
+  const SUPPORT = emailFor(TAG, 'support')
+
+  let supportCookie: string
+
+  beforeAll(async () => {
+    const supportRoleId = await createRole(TAG, 'support', ['user.read', 'user.reset_password'])
+    await createUser(SUPPORT, { name: 'Support', roleIds: [supportRoleId] })
+    supportCookie = await login(app, SUPPORT)
+  })
+
+  /**
+   * The recruiter holds `user.update`. Starting a credential flow on somebody else's
+   * account is not the same act as correcting the spelling of their name, which is the
+   * entire reason `user.reset_password` is its own key.
+   */
+  it('is refused to a caller who can edit users but not reset their passwords', async () => {
+    const res = await request(app, `/users/${memberId}/reset-password`, {
+      method: 'POST',
+      cookie: recruiterCookie,
+    })
+
+    expect(res.status).toBe(403)
+  })
+
+  it('issues a token, once, and stores only its hash', async () => {
+    const res = await request(app, `/users/${memberId}/reset-password`, {
+      method: 'POST',
+      cookie: ownerCookie,
+    })
+
+    expect(res.status).toBe(200)
+
+    const body = (await res.json()) as { user: { email: string }; resetToken: string }
+    expect(body.user.email).toBe(MEMBER)
+    expect(body.resetToken).toMatch(/^rst_/)
+
+    const [row] = await db
+      .select({ hash: users.passwordResetTokenHash })
+      .from(users)
+      .where(eq(users.id, memberId))
+
+    expect(row?.hash).toBeTruthy()
+    expect(row?.hash).not.toBe(body.resetToken)
+  })
+
+  /**
+   * A reset link is a way of taking an account over, and taking an account over is a way of
+   * holding its permissions — so the rule that stops `user.invite` meaning "may become
+   * owner" has to hold on this route too, from the other direction.
+   */
+  it('refuses to reset an account more powerful than the caller', async () => {
+    const res = await request(app, `/users/${ownerId}/reset-password`, {
+      method: 'POST',
+      cookie: supportCookie,
+    })
+
+    expect(res.status).toBe(403)
+
+    const body = (await res.json()) as { error: { details?: { permissions?: string[] } } }
+    expect(body.error.details?.permissions).toContain('audit.read')
+  })
+
+  it('lets that same caller reset somebody who holds no more than they do', async () => {
+    const res = await request(app, `/users/${memberId}/reset-password`, {
+      method: 'POST',
+      cookie: supportCookie,
+    })
+
+    expect(res.status).toBe(200)
+  })
+
+  it('refuses an account that has never accepted its invitation', async () => {
+    const invitedId = await createUser(emailFor(TAG, 'unopened'), { status: 'invited' })
+
+    const res = await request(app, `/users/${invitedId}/reset-password`, {
+      method: 'POST',
+      cookie: ownerCookie,
+    })
+
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('re-send its invitation instead')
+  })
+
+  it('refuses a disabled account', async () => {
+    const [dormant] = await db.select({ id: users.id }).from(users).where(eq(users.email, DORMANT))
+
+    const res = await request(app, `/users/${dormant?.id}/reset-password`, {
+      method: 'POST',
+      cookie: ownerCookie,
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('is a 404 for a user who does not exist', async () => {
+    const res = await request(app, `/users/${crypto.randomUUID()}/reset-password`, {
+      method: 'POST',
+      cookie: ownerCookie,
+    })
+
+    expect(res.status).toBe(404)
   })
 })

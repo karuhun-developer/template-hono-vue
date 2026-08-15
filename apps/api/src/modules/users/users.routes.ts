@@ -22,6 +22,7 @@ import {
   resendInvite,
   restoreUser,
   setUserStatus,
+  triggerPasswordReset,
   updateUser,
 } from '#modules/users/users.service'
 
@@ -29,10 +30,11 @@ import {
  * User management.
  *
  * The invitation token appears in the response of `POST /users` and
- * `POST /users/:id/invite` — once. It can never be read back from `GET /users`, because
- * what is stored is only its hash, exactly as with a session token. Hand it to the person
- * however you hand things to people; wiring up an email sender is one of the first things
- * a real project adds.
+ * `POST /users/:id/invite` — once — and the reset token in `POST /users/:id/reset-password`
+ * the same way. Neither can be read back from `GET /users`, because what is stored is only
+ * their hash, exactly as with a session token. Hand it to the person however you hand
+ * things to people; wiring up an email sender is one of the first things a real project
+ * adds.
  */
 
 const validationHook = (result: { success: boolean; error?: unknown }): void => {
@@ -166,6 +168,27 @@ export const userRoutes = new Hono<AppBindings>()
 
       c.get('logger').info({ userId: user.id }, 'user deleted')
       return c.json({ user })
+    },
+  )
+
+  /**
+   * Its own permission rather than `user.update`, because starting a credential flow on
+   * somebody else's account is not the same act as correcting the spelling of their name —
+   * and whoever may do the second should not automatically be able to do the first.
+   */
+  .post(
+    '/:id/reset-password',
+    requirePermission('user.reset_password'),
+    zValidator('param', idParam, validationHook),
+    async (c) => {
+      const result = await triggerPasswordReset(
+        currentAccess(c),
+        actorFromContext(c),
+        c.req.valid('param').id,
+      )
+
+      c.get('logger').info({ userId: result.user.id }, 'password reset issued')
+      return c.json(result)
     },
   )
 

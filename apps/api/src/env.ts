@@ -97,6 +97,15 @@ const envSchema = z
     SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 
     /**
+     * How long a password reset link stays usable. An invitation lives for days because it
+     * has to survive a weekend; a reset only has to survive the walk to an inbox, and every
+     * extra hour is another hour a link sitting in a mailbox is a live credential.
+     *
+     * Capped at a day rather than left open: an unbounded reset TTL is a second password.
+     */
+    PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(60),
+
+    /**
      * The first account `make seed` creates. Read here rather than hard-coded in the
      * seeder so that a fresh clone can be given a real address without editing source —
      * and so the password of the very first account never has to be committed.

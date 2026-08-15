@@ -3,11 +3,11 @@ import { and, eq, inArray, isNull } from 'drizzle-orm'
 
 import { db, type DatabaseHandle } from '#db/client'
 import { roles as rolesTable, users } from '#db/schema'
-import { badRequest, conflict, notFound } from '#lib/errors'
+import { badRequest, conflict, forbidden, notFound } from '#lib/errors'
 import { hashPassword } from '#lib/password'
 import { issueToken } from '#lib/token'
 import { diffFields, recordAudit, type AuditActor } from '#modules/audit/audit.repo'
-import { type AccessContext } from '#modules/rbac/rbac.repo'
+import { loadAccess, type AccessContext } from '#modules/rbac/rbac.repo'
 import { loadRolePermissions } from '#modules/roles/roles.repo'
 import { assertGrantable } from '#modules/roles/roles.service'
 import {
@@ -23,11 +23,12 @@ import type {
   ListUsersQuery,
   UpdateUserBody,
 } from '#modules/users/users.schema'
+import { issueReset } from '#platform/password-reset.repo'
 
 /**
  * The rules around managing people.
  *
- * Two of them cannot be expressed by a query builder, and both exist to stop somebody
+ * Three of them cannot be expressed by a query builder, and two exist to stop somebody
  * promoting themselves:
  *
  * 1. **Which roles may be handed out.** Nobody can give away a permission they do not hold
@@ -36,6 +37,9 @@ import type {
  * 2. **Nobody can disable or delete themselves.** The button that would undo it is behind
  *    the access they just took away from themselves — and, as a consequence, an
  *    installation can never be left without an account able to manage users.
+ * 3. **Nobody can reset the password of an account stronger than their own.** Rule 1 by
+ *    another route: taking over an account is a way of holding its permissions, and a reset
+ *    link is a way of taking one over.
  */
 
 /**
@@ -50,6 +54,13 @@ export type InviteResult = {
   /** Returned once, in this response only. What is stored is a hash of it. */
   inviteToken: string
   inviteExpiresAt: Date
+}
+
+export type PasswordResetResult = {
+  user: UserWithRoles
+  /** Same rule as `inviteToken`: this response, once, and never readable again. */
+  resetToken: string
+  resetExpiresAt: Date
 }
 
 // --- Read -------------------------------------------------------------------
@@ -428,7 +439,83 @@ export async function restoreUser(actor: AuditActor, userId: string): Promise<Us
   })
 }
 
+/**
+ * Start a password reset on somebody else's behalf.
+ *
+ * The counterpart to `POST /auth/forgot-password`, for the person who cannot receive the
+ * mail — a changed address, a mailbox nobody has access to any more. Both ends issue the
+ * same kind of token through the same repository; what differs is who is asking.
+ *
+ * Three differences from the self-service door, each deliberate:
+ *
+ * - **No cooldown.** It exists to stop an anonymous form being used as an email cannon.
+ *   Whoever reaches this route is signed in, holds an owner-only permission, and is named
+ *   in the audit entry — pressing the button twice is not an attack.
+ * - **The token comes back in the response**, once, exactly as an invitation token does, so
+ *   that an installation with no mailer can still hand somebody a link.
+ * - **The reasons are specific.** An invited or disabled account gets told which it is;
+ *   there is nothing to leak to a caller who can already read the user list.
+ */
+export async function triggerPasswordReset(
+  access: AccessContext,
+  actor: AuditActor,
+  userId: string,
+): Promise<PasswordResetResult> {
+  const target = await findUser(db, userId)
+  if (!target) throw notFound('User not found.')
+
+  if (target.status !== 'active') {
+    throw badRequest(
+      target.status === 'invited'
+        ? 'This account has never set a password — re-send its invitation instead.'
+        : 'This account is disabled. Enable it before resetting its password.',
+    )
+  }
+
+  await assertNotStronger(access, userId)
+
+  return db.transaction(async (tx) => {
+    const issued = await issueReset(tx, userId)
+    // Only an account that is active and not deleted can be reset, and both were just
+    // checked through `findUser`. Nothing else can make this null.
+    if (!issued) throw new Error('the password reset could not be issued')
+
+    await recordAudit(tx, actor, {
+      action: 'user.password_reset_request',
+      subjectType: 'users',
+      subjectId: target.id,
+      subjectLabel: target.email,
+    })
+
+    const saved = await findUser(tx, userId)
+    if (!saved) throw new Error('the user could not be read back')
+
+    return { user: saved, resetToken: issued.token, resetExpiresAt: issued.expiresAt }
+  })
+}
+
 // --- Guards -----------------------------------------------------------------
+
+/**
+ * May the caller take this account over?
+ *
+ * Because that is what a reset link is. Without this check, `user.reset_password` handed to
+ * a support role means "may become owner" by a slightly longer path than rule 1's: reset the
+ * owner's password, follow the link, sign in. The same escalation, the same refusal.
+ *
+ * It compares **effective permissions**, not roles: what matters is what the target account
+ * can do, however it came by it.
+ */
+async function assertNotStronger(access: AccessContext, targetId: string): Promise<void> {
+  const target = await loadAccess(targetId)
+  const excess = [...target.permissions].filter((key) => !access.permissions.has(key)).sort()
+
+  if (excess.length > 0) {
+    throw forbidden('You cannot reset the password of an account more powerful than your own.', {
+      permissions: excess,
+    })
+  }
+}
 
 /**
  * Is this address free to hand to a new account?

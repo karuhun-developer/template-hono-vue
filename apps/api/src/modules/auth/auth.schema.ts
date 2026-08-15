@@ -40,3 +40,14 @@ export const inviteToken = z.string().trim().min(1, 'The invitation token is req
 export const acceptInviteBody = z.object({ token: inviteToken, password: newPassword })
 
 export type AcceptInviteBody = z.infer<typeof acceptInviteBody>
+
+/** Same treatment as `inviteToken`: shape only, because the hash lookup is the real check. */
+export const resetToken = z.string().trim().min(1, 'The reset token is required.').max(128)
+
+export const forgotPasswordBody = z.object({ email })
+
+export type ForgotPasswordBody = z.infer<typeof forgotPasswordBody>
+
+export const resetPasswordBody = z.object({ token: resetToken, password: newPassword })
+
+export type ResetPasswordBody = z.infer<typeof resetPasswordBody>

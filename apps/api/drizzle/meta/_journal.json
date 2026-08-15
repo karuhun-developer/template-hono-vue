@@ -22,6 +22,13 @@
       "when": 1786734483070,
       "tag": "0002_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786822585740,
+      "tag": "0003_add_password_reset",
+      "breakpoints": true
     }
   ]
 }

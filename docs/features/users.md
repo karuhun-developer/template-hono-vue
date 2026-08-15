@@ -1,6 +1,6 @@
 # User management
 
-Inviting people, creating them outright, editing them and their roles, switching accounts on and off, and removing and restoring them. Everything here writes an audit entry.
+Inviting people, creating them outright, editing them and their roles, switching accounts on and off, resetting their passwords, and removing and restoring them. Everything here writes an audit entry.
 
 | Concern   | File                                          |
 | --------- | --------------------------------------------- |
@@ -12,17 +12,18 @@ Inviting people, creating them outright, editing them and their roles, switching
 
 ## Endpoints
 
-| Method   | Path                 | Permission     | Does                                           |
-| -------- | -------------------- | -------------- | ---------------------------------------------- |
-| `GET`    | `/users`             | `user.read`    | List — paged, sorted, filtered (see below)     |
-| `GET`    | `/users/:id`         | `user.read`    | One user, in the shape a list row has          |
-| `POST`   | `/users`             | `user.invite`  | Create as `invited`, return the token **once** |
-| `POST`   | `/users/create`      | `user.create`  | Create as `active`, with a password            |
-| `POST`   | `/users/:id/invite`  | `user.invite`  | Re-issue the token; the previous link dies     |
-| `PATCH`  | `/users/:id`         | `user.update`  | Name and roles                                 |
-| `POST`   | `/users/:id/status`  | `user.disable` | `active` ⇄ `disabled`                          |
-| `DELETE` | `/users/:id`         | `user.delete`  | Soft delete — sets `deleted_at`                |
-| `POST`   | `/users/:id/restore` | `user.delete`  | Clears it again                                |
+| Method   | Path                        | Permission            | Does                                           |
+| -------- | --------------------------- | --------------------- | ---------------------------------------------- |
+| `GET`    | `/users`                    | `user.read`           | List — paged, sorted, filtered (see below)     |
+| `GET`    | `/users/:id`                | `user.read`           | One user, in the shape a list row has          |
+| `POST`   | `/users`                    | `user.invite`         | Create as `invited`, return the token **once** |
+| `POST`   | `/users/create`             | `user.create`         | Create as `active`, with a password            |
+| `POST`   | `/users/:id/invite`         | `user.invite`         | Re-issue the token; the previous link dies     |
+| `PATCH`  | `/users/:id`                | `user.update`         | Name and roles                                 |
+| `POST`   | `/users/:id/status`         | `user.disable`        | `active` ⇄ `disabled`                          |
+| `DELETE` | `/users/:id`                | `user.delete`         | Soft delete — sets `deleted_at`                |
+| `POST`   | `/users/:id/restore`        | `user.delete`         | Clears it again                                |
+| `POST`   | `/users/:id/reset-password` | `user.reset_password` | Issues `rst_…`, returned **once**              |
 
 Status has **its own endpoint and its own permission** rather than being a field on `PATCH /users/:id`. Locking somebody out is not the same kind of act as correcting the spelling of their name, and the audit entry it writes should not depend on anyone remembering to look at a `status` key in a request body.
 
@@ -68,7 +69,17 @@ Both routes run `assertRolesGrantable()` first, for the reason in the next secti
 - **`deleted_at`** is set by `DELETE /users/:id` and cleared by its mirror. The row never actually goes: a person who left is still named by old audit entries, and `user_roles.role_id` is `ON DELETE RESTRICT` on purpose. Deciding when a row may truly be purged is a retention policy your project writes, not one a starter answers.
 - An invitation lives **72 hours**: long enough to survive a weekend, short enough that a link left in a chat history does not work forever.
 
-## The two rules that are not queries
+## Resetting somebody else's password
+
+`POST /users/:id/reset-password` is the counterpart to `POST /auth/forgot-password`, for the person who cannot receive the mail — a changed address, a mailbox nobody has access to any more. Both ends issue the same kind of token through the same repository; three things differ, each because the caller is signed in rather than anonymous:
+
+- **No cooldown.** It exists to stop an anonymous form being used as an email cannon. Whoever reaches this route holds an owner-only permission and is named in the audit entry; pressing the button twice is not an attack.
+- **The token comes back in the response**, once, exactly as an invitation token does, so an installation with no mailer can still hand somebody a link.
+- **The refusals are specific.** An invited account is told to re-send its invitation, a disabled one to be enabled first. There is nothing to leak to a caller who can already read the user list.
+
+Its own permission key, not `user.update`: starting a credential flow on somebody else's account is not the same act as correcting the spelling of their name. See rule 3 below for the guard that goes with it.
+
+## The three rules that are not queries
 
 **1. You cannot hand out a role you could not grant yourself.** `assertRolesGrantable()` expands each requested role into its permissions and runs them through `assertGrantable()` — the same check the roles module applies from the other side. Without it, `user.invite` quietly means "may become owner": create an account, give it the Owner role, sign in as it.
 
@@ -77,6 +88,10 @@ It applies to inviting, to creating **and** to editing, because the escalation w
 **2. Nobody can disable or delete their own account.** The button that would undo it is behind the access they just took away from themselves. The API refuses with a `400`; the console hides the button on your own row, so the message is a backstop rather than the primary experience.
 
 That second refusal is also what keeps an installation repairable. Whoever reaches `DELETE /users/:id` holds `user.delete` and is signed in, so they are themselves an account able to manage users — which means **deleting somebody else can never remove the last one**. There is deliberately no separate "is this the last manager" count: given the self-delete rule it could never fire, and a guard that cannot fire reads as protection while being none.
+
+**3. Nobody can reset the password of an account stronger than their own.** Rule 1 by another route, and the reason `assertNotStronger()` sits on `POST /users/:id/reset-password`: taking an account over is a way of holding its permissions, and a reset link is a way of taking one over. Without it, `user.reset_password` handed to a support role means "may become owner" — reset the owner's password, follow the link, sign in.
+
+It compares **effective permissions**, not roles: what matters is what the target account can do, however it came by it. The refusal is a `403` naming the permissions the caller is missing, the same shape `assertGrantable()` answers with.
 
 ## Deleting is soft, and the address stays taken
 

@@ -6,12 +6,21 @@ import { clientInfo } from '#lib/request-info'
 import { clearSessionCookie, readSessionCookie, setSessionCookie } from '#lib/session-cookie'
 import type { AppBindings } from '#middleware/request-context'
 import { currentAccess, currentUser, requireAuth } from '#middleware/session'
-import { acceptInviteBody, loginBody } from '#modules/auth/auth.schema'
+import { actorFromContext } from '#modules/audit/audit.repo'
+import {
+  acceptInviteBody,
+  forgotPasswordBody,
+  loginBody,
+  resetPasswordBody,
+} from '#modules/auth/auth.schema'
 import {
   acceptInvitation,
   loginUser,
   logout,
   previewInvite,
+  previewPasswordReset,
+  requestPasswordReset,
+  resetPassword,
   type LoginResult,
 } from '#modules/auth/auth.service'
 import { allPermissions } from '#modules/rbac/rbac.repo'
@@ -71,6 +80,31 @@ export const authRoutes = new Hono<AppBindings>()
 
     setSessionCookie(c, result.session.token, result.session.expiresAt)
     c.get('logger').info({ userId: result.principal.id }, 'invitation accepted')
+
+    return c.json(loginResponse(result))
+  })
+  /**
+   * The three reset endpoints are public for the same reason the invitation ones are: the
+   * people who need them are the people who cannot sign in.
+   *
+   * `forgot-password` answers `{ ok: true }` and nothing else, on **every** path — unknown
+   * address, disabled account, cooldown still running. The service resolves `void` so that
+   * this route has nothing to accidentally branch on; see the note above it for why an
+   * honest answer here would be an account-enumeration endpoint.
+   */
+  .post('/forgot-password', zValidator('json', forgotPasswordBody, validationHook), async (c) => {
+    await requestPasswordReset(c.req.valid('json').email, actorFromContext(c))
+
+    return c.json({ ok: true as const })
+  })
+  .get('/password-reset/:token', async (c) => {
+    return c.json({ reset: await previewPasswordReset(c.req.param('token')) })
+  })
+  .post('/reset-password', zValidator('json', resetPasswordBody, validationHook), async (c) => {
+    const result = await resetPassword(c.req.valid('json'), clientInfo(c), actorFromContext(c))
+
+    setSessionCookie(c, result.session.token, result.session.expiresAt)
+    c.get('logger').info({ userId: result.principal.id }, 'password reset')
 
     return c.json(loginResponse(result))
   })

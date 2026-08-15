@@ -2,27 +2,31 @@
 
 Session-based, with an opaque token in an `httpOnly` cookie. No JWTs — the reasoning is in [ADR-0001](../decisions/ADR-0001-session-cookies-over-jwt.md).
 
-| Concern                      | File                                        |
-| ---------------------------- | ------------------------------------------- |
-| Endpoints                    | `apps/api/src/modules/auth/auth.routes.ts`  |
-| Rules                        | `apps/api/src/modules/auth/auth.service.ts` |
-| Token generation and hashing | `apps/api/src/lib/token.ts`                 |
-| The cookie                   | `apps/api/src/lib/session-cookie.ts`        |
-| Session rows                 | `apps/api/src/platform/session.repo.ts`     |
-| Password hashing             | `apps/api/src/lib/password.ts`              |
-| Identity + session tables    | `apps/api/src/db/schema/identity.ts`        |
+| Concern                      | File                                           |
+| ---------------------------- | ---------------------------------------------- |
+| Endpoints                    | `apps/api/src/modules/auth/auth.routes.ts`     |
+| Rules                        | `apps/api/src/modules/auth/auth.service.ts`    |
+| Token generation and hashing | `apps/api/src/lib/token.ts`                    |
+| The cookie                   | `apps/api/src/lib/session-cookie.ts`           |
+| Session rows                 | `apps/api/src/platform/session.repo.ts`        |
+| Reset rows                   | `apps/api/src/platform/password-reset.repo.ts` |
+| Password hashing             | `apps/api/src/lib/password.ts`                 |
+| Identity + session tables    | `apps/api/src/db/schema/identity.ts`           |
 
 ## Endpoints
 
-| Method | Path                      | Guard           | Answers                                      |
-| ------ | ------------------------- | --------------- | -------------------------------------------- |
-| `POST` | `/auth/login`             | public          | `{ user, expiresAt }` and sets the cookie    |
-| `GET`  | `/auth/invitation/:token` | public          | `{ invitation: { email, name, expiresAt } }` |
-| `POST` | `/auth/invitation/accept` | public          | Sets a password, activates, signs in         |
-| `GET`  | `/auth/me`                | `requireAuth()` | `{ user, permissions }`                      |
-| `POST` | `/auth/logout`            | public          | Clears the cookie, revokes the session       |
+| Method | Path                          | Guard           | Answers                                      |
+| ------ | ----------------------------- | --------------- | -------------------------------------------- |
+| `POST` | `/auth/login`                 | public          | `{ user, expiresAt }` and sets the cookie    |
+| `GET`  | `/auth/invitation/:token`     | public          | `{ invitation: { email, name, expiresAt } }` |
+| `POST` | `/auth/invitation/accept`     | public          | Sets a password, activates, signs in         |
+| `POST` | `/auth/forgot-password`       | public          | `{ ok: true }` — always, whatever happened   |
+| `GET`  | `/auth/password-reset/:token` | public          | `{ reset: { email, expiresAt } }`            |
+| `POST` | `/auth/reset-password`        | public          | Sets the password, signs in, kills the rest  |
+| `GET`  | `/auth/me`                    | `requireAuth()` | `{ user, permissions }`                      |
+| `POST` | `/auth/logout`                | public          | Clears the cookie, revokes the session       |
 
-The invitation endpoints are public **on purpose**: the people who open them are precisely the ones without an active account. The capability is the token in the URL, not a session.
+The invitation and reset endpoints are public **on purpose**: the people who open them are precisely the ones without an active account. The capability is the token in the URL, not a session.
 
 `/auth/logout` is public too, and always answers `200`. A token that does not exist, has expired, or was already revoked still gets a success — otherwise the endpoint becomes a way to test whether a token was ever valid.
 
@@ -31,6 +35,7 @@ The invitation endpoints are public **on purpose**: the people who open them are
 ```text
 sess_hCq3n7pQ...   43 characters of base64url
 inv_9dLmR2f...
+rst_Kw8tXb1...
 ```
 
 A prefix, an underscore, and 32 random bytes as base64url — always exactly 43 characters, no padding.
@@ -106,11 +111,48 @@ Accepting signs you straight in. The person has just proved two things at once �
 
 > **No email is sent.** The template returns the invitation token to the caller and the console shows the link in a dialog. Wire your provider in `users.service.ts` where the token is issued, and stop returning the token in the response when you do.
 
+## Password resets
+
+Two doors into the same mechanism, and the difference between them is who is asking.
+
+```text
+POST /auth/forgot-password      → { ok: true }, always. The link goes to the person, never
+                                  to the caller
+POST /users/:id/reset-password  → user.reset_password. Returns rst_… once, the way an
+                                  invitation does
+GET  /auth/password-reset/:token
+                                → { email, expiresAt } so the page can say whose account it is
+POST /auth/reset-password       → sets the password, revokes every session, issues a new one
+```
+
+Stored exactly like an invitation: the SHA-256 in `users.password_reset_token_hash` under a partial unique index, so an account has **one** live link and asking for another kills the first. A reset lives **`PASSWORD_RESET_TTL_MINUTES`** (default 60, capped at a day) rather than the invitation's 72 hours — an invitation has to survive a weekend, a reset only the walk to an inbox, and every extra hour is another hour a link sitting in a mailbox is a live credential.
+
+### `POST /auth/forgot-password` tells you nothing
+
+It answers `200 { ok: true }` for an address that does not exist, for one that is invited or disabled or deleted, and for one whose cooldown has not elapsed. `requestPasswordReset()` resolves `void` so the route has nothing to branch on. This is the same rule the sign-in path follows, for the same reason: an honest answer here is an endpoint that tells anybody who asks whether an address has an account.
+
+Three consequences that each look like an omission:
+
+- **The audit entry is written only when a token was really issued.** An entry for an unknown address would turn the audit log into the enumeration oracle the endpoint refuses to be — and it is read by exactly the people who could then use it.
+- **A 60-second per-address cooldown**, so the endpoint is not an email cannon pointed at anybody whose address is known. It leaves the outstanding link alone rather than rotating it: a mail already on its way would otherwise be dead on arrival.
+- **The cooldown is a condition on the row**, not a read followed by a write, so two requests arriving together cannot both pass it. There is no `password_reset_issued_at` column — a token issued _n_ seconds ago expires `ttl - n` from now, so "issued within the cooldown" is "expires later than `now + ttl - cooldown`".
+
+Which accounts may reset is decided **in SQL**, in `issueReset()` and again in `findPendingReset()`: `status = 'active' AND deleted_at IS NULL`. An invited account's way in is its invitation, and a disabled one must not be able to reset its way back in — otherwise "switch this person off" is undone by a form anybody can post to.
+
+### Using the link
+
+`consumeReset()` carries the token hash in its `WHERE`, exactly as `acceptInvite()` does, so a double-clicked button cannot apply twice: the second request matches zero rows and is answered like an expired link rather than overwriting the password the first one just set.
+
+Then **every session is revoked**, before the new one is created. "I forgot my password" and "I think somebody else has my password" arrive through the same door, and only one of them is safe to leave signed in elsewhere. Ordering it after would sign the person out of the session the reset had just handed them.
+
+> **No email is sent here either.** Outside production the link is written to the API log (`password reset requested — no mailer is configured`), because a self-service token is the one that can never be returned in a response. That log line goes when the mail subsystem takes over the send.
+
 ## Conventions
 
 - Never put a session token in a response body. The cookie is the only channel.
 - Never store identity in `localStorage`. `GET /auth/me` is the single source of truth, and a copy in local storage keeps saying "allowed" after access has been revoked.
 - Keep the uniform failure message. Any new sign-in path gets `failLogin()`, dummy verification included.
 - Any condition that decides whether a session is usable goes into the SQL in `findLiveSession()`, not into a check afterwards.
-- Every new token family gets a prefix in `TOKEN_PREFIX` and a `looksLikeToken()` check before its first query.
+- Every new token family gets a prefix in `TOKEN_PREFIX` and a `looksLikeToken()` check before its first query. A family of its own is also what stops an invitation link being traded at the reset door.
+- An endpoint anybody can post an email address to answers the same way whatever it found, and writes its audit entry only when something actually happened.
 - Reuse `baseOptions()` for anything that sets or clears the session cookie.

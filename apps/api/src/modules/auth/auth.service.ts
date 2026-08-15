@@ -1,10 +1,25 @@
+import { db } from '#db/client'
+import { isProduction } from '#env'
 import { ApiError, notFound, unauthorized } from '#lib/errors'
+import { logger } from '#lib/logger'
 import { hashPassword, needsRehash, verifyDummyPassword, verifyPassword } from '#lib/password'
 import type { ClientInfo } from '#lib/request-info'
 import { looksLikeToken } from '#lib/token'
+import { recordAudit, type AuditActor } from '#modules/audit/audit.repo'
 import { findUserByEmail, markUserLoggedIn } from '#platform/auth.repo'
 import { acceptInvite, findPendingInvite } from '#platform/invite.repo'
-import { createSession, revokeSessionByToken, type IssuedSession } from '#platform/session.repo'
+import {
+  consumeReset,
+  findPendingReset,
+  issueReset,
+  RESET_COOLDOWN_SECONDS,
+} from '#platform/password-reset.repo'
+import {
+  createSession,
+  revokeAllSessionsForUser,
+  revokeSessionByToken,
+  type IssuedSession,
+} from '#platform/session.repo'
 
 /**
  * The sign-in rules.
@@ -163,4 +178,128 @@ export async function acceptInvitation(
     session,
     principal: { id: userId, email: invite.email, name: invite.name },
   }
+}
+
+// --- Password resets --------------------------------------------------------
+
+const RESET_INVALID = 'This password reset link is no longer valid. Ask for a new one.'
+
+/**
+ * What a reset link can show before the new password is chosen. The same shape and the same
+ * reasoning as `InvitePreview`.
+ */
+export type ResetPreview = {
+  email: string
+  expiresAt: Date
+}
+
+/**
+ * Ask for a reset link.
+ *
+ * **Nothing about the outcome escapes.** This resolves `void` on every path and the route
+ * always answers the same `200`, because the alternative is an endpoint that tells anybody
+ * who asks whether an address has an account here — the exact thing `loginUser()` goes to
+ * such lengths to avoid two hundred lines above.
+ *
+ * The consequences of that rule are worth spelling out, because each looks like an omission:
+ *
+ * - An unknown, invited, disabled or deleted address does the same visible work and returns.
+ *   The status filtering lives in `issueReset()`'s `WHERE`, so this function cannot
+ *   accidentally branch on it.
+ * - The **cooldown returns the same answer** as a link that was issued. A second `200` that
+ *   quietly sent nothing is the point.
+ * - The audit entry is written **only when a token was really issued**. An entry for an
+ *   address that does not exist would turn the audit log into the enumeration oracle the
+ *   endpoint refuses to be — and it is read by exactly the people who could then use it.
+ *
+ * There is deliberately no dummy argon2 pass here, unlike on the sign-in path. This does no
+ * hashing on any path, so there is no timing gap to close.
+ */
+export async function requestPasswordReset(address: string, actor: AuditActor): Promise<void> {
+  const user = await findUserByEmail(address)
+  if (!user) return
+
+  const issued = await db.transaction(async (tx) => {
+    const reset = await issueReset(tx, user.id, { cooldownSeconds: RESET_COOLDOWN_SECONDS })
+    if (!reset) return null
+
+    await recordAudit(tx, actor, {
+      action: 'user.password_reset_request',
+      subjectType: 'users',
+      subjectId: user.id,
+      subjectLabel: user.email,
+    })
+
+    return reset
+  })
+
+  if (issued) announceResetLink(user.email, issued.token)
+}
+
+export async function previewPasswordReset(token: string): Promise<ResetPreview> {
+  const reset = looksLikeToken(token, 'reset') ? await findPendingReset(token) : null
+  if (!reset) throw notFound(RESET_INVALID)
+
+  return { email: reset.email, expiresAt: reset.expiresAt }
+}
+
+/**
+ * Set the new password, end every other session, and sign the person in.
+ *
+ * The revocation is the part that matters. "I forgot my password" and "I think somebody
+ * else has my password" arrive through this same door, and only one of them is safe to
+ * leave signed in elsewhere. It runs **before** the new session is created, or the reset
+ * would sign the person out of the session it had just handed them.
+ *
+ * Signing them in afterwards follows `acceptInvitation()`: they have just proved they hold
+ * the link and chose the password, so a sign-in form three seconds later adds no security
+ * and does add people who mistype something.
+ */
+export async function resetPassword(
+  input: { token: string; password: string },
+  client: ClientInfo,
+  actor: AuditActor,
+): Promise<LoginResult> {
+  if (!looksLikeToken(input.token, 'reset')) throw notFound(RESET_INVALID)
+
+  const reset = await findPendingReset(input.token)
+  if (!reset) throw notFound(RESET_INVALID)
+
+  const userId = await consumeReset(input.token, await hashPassword(input.password))
+  if (!userId) throw notFound(RESET_INVALID)
+
+  await revokeAllSessionsForUser(userId)
+
+  await recordAudit(db, actor, {
+    action: 'user.password_reset',
+    subjectType: 'users',
+    subjectId: userId,
+    subjectLabel: reset.email,
+  })
+
+  const session = await createSession(userId, client)
+
+  return {
+    session,
+    principal: { id: userId, email: reset.email, name: reset.name },
+  }
+}
+
+/**
+ * Put the reset link where somebody can find it, for as long as there is no mailer.
+ *
+ * A self-service reset is the one flow whose token can never be returned in the response —
+ * that would hand the link to whoever asked for it, which is the whole attack. Until the
+ * mail subsystem lands, the log is the only channel there is.
+ *
+ * Guarded by `isProduction` and **temporary**: a live reset link in a log aggregator is a
+ * live credential. This function goes when `queueMail()` takes over the send.
+ */
+function announceResetLink(email: string, token: string): void {
+  if (isProduction) return
+
+  logger.info(
+    { email, resetToken: token },
+    'password reset requested — no mailer is configured, so the link is here',
+  )
 }
