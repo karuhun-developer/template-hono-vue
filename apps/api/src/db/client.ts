@@ -4,6 +4,7 @@ import pg from 'pg'
 import * as schema from '#db/schema'
 import { env, isProduction } from '#env'
 import { logger } from '#lib/logger'
+import { onShutdown } from '#lib/shutdown'
 
 /**
  * One pool for the whole process.
@@ -67,3 +68,10 @@ export async function pingDatabase(): Promise<boolean> {
 export async function closeDatabase(): Promise<void> {
   await pool.end()
 }
+
+/**
+ * Registered here rather than in an entrypoint so that the ordering is correct by
+ * construction: the registry runs tasks in reverse, and anything that queries through this
+ * pool must import it — and therefore register after it, and therefore stop before it.
+ */
+onShutdown('database', closeDatabase)

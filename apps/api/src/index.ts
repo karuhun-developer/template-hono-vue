@@ -1,9 +1,12 @@
 import { serve } from '@hono/node-server'
 
 import { app } from '#app'
-import { closeDatabase } from '#db/client'
+// Imported for its side effect: loading it is what registers the pool's shutdown task,
+// and it must happen before the one registered below so that it runs after it.
+import '#db/client'
 import { env } from '#env'
 import { logger } from '#lib/logger'
+import { installSignalHandlers, onShutdown } from '#lib/shutdown'
 
 const server = serve({ fetch: app.fetch, hostname: env.API_HOST, port: env.API_PORT }, (info) => {
   logger.info(
@@ -13,24 +16,17 @@ const server = serve({ fetch: app.fetch, hostname: env.API_HOST, port: env.API_P
 })
 
 /**
- * Shut down tidily: stop accepting new connections, let the requests already in flight
- * finish. This matters more than it looks — a process killed mid-write is how you end up
- * with a row that says one thing and an audit trail that says another.
+ * Stop accepting new connections and let the requests already in flight finish. This
+ * matters more than it looks — a process killed mid-write is how you end up with a row
+ * that says one thing and an audit trail that says another.
+ *
+ * Registered last, so it runs first: the pool registered itself in `db/client.ts` and has
+ * to outlive the handlers still writing through it.
  */
-function shutdown(signal: NodeJS.Signals): void {
-  logger.info({ signal }, 'closing server')
-  server.close((err) => {
-    if (err) {
-      logger.error({ err }, 'failed to close server')
-      process.exitCode = 1
-    }
-    void closeDatabase()
-      .catch((closeErr: unknown) => logger.error({ err: closeErr }, 'failed to close the pool'))
-      .finally(() => process.exit())
+onShutdown('http-server', async () => {
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()))
   })
-  // Do not hang forever on a connection that refuses to let go.
-  setTimeout(() => process.exit(1), 10_000).unref()
-}
+})
 
-process.on('SIGINT', shutdown)
-process.on('SIGTERM', shutdown)
+installSignalHandlers()
