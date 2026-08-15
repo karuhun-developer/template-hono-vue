@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, type HTMLAttributes } from 'vue'
 
 import { cn } from '../../lib/utils'
+import { TooltipProvider } from '../tooltip'
 import { provideSidebar, SIDEBAR_STORAGE_KEY, SIDEBAR_WIDTH, SIDEBAR_WIDTH_ICON } from './context'
 
 /**
@@ -86,11 +87,18 @@ provideSidebar({ open, openMobile, isMobile, state, toggle, setOpen, setOpenMobi
 </script>
 
 <template>
-  <div
-    data-slot="sidebar-wrapper"
-    :style="{ '--sidebar-width': SIDEBAR_WIDTH, '--sidebar-width-icon': SIDEBAR_WIDTH_ICON }"
-    :class="cn('group/sidebar-wrapper flex min-h-dvh w-full', props.class)"
-  >
-    <slot />
-  </div>
+  <!--
+    The tooltip provider lives here because the tooltips it serves are the labels on the
+    collapsed rail — a sidebar that needs a provider its caller has to remember to add is
+    a sidebar that silently loses its labels the first time somebody collapses it.
+  -->
+  <TooltipProvider :delay-duration="0">
+    <div
+      data-slot="sidebar-wrapper"
+      :style="{ '--sidebar-width': SIDEBAR_WIDTH, '--sidebar-width-icon': SIDEBAR_WIDTH_ICON }"
+      :class="cn('group/sidebar-wrapper flex min-h-dvh w-full', props.class)"
+    >
+      <slot />
+    </div>
+  </TooltipProvider>
 </template>

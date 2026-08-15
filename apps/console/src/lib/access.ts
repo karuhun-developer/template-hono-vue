@@ -1,5 +1,7 @@
 import type { PermissionKey } from '@app/contract'
 
+import type { NavGroup, NavItem } from '@/lib/nav'
+
 /**
  * The pure part of authorisation on the client.
  *
@@ -37,6 +39,32 @@ export function visibleItems<T extends { permission?: PermissionKey }>(
   state: Pick<NavigationState, 'permissions'>,
 ): T[] {
   return items.filter((item) => hasPermission(state.permissions, item.permission))
+}
+
+/**
+ * The same filter, one level up.
+ *
+ * A group whose every item was filtered away is dropped rather than rendered as a heading
+ * with nothing under it — which is how somebody without `audit.read` would otherwise see
+ * the word "Audit" and conclude the page failed to load.
+ *
+ * Items that expand are filtered on both levels: their children go through the same rule,
+ * and a parent left with none is dropped too.
+ */
+export function visibleGroups(
+  groups: readonly NavGroup[],
+  state: Pick<NavigationState, 'permissions'>,
+): { label: string; items: NavItem[] }[] {
+  return groups
+    .map((group) => ({
+      label: group.label,
+      items: visibleItems(group.items, state)
+        .map((item) =>
+          item.children ? { ...item, children: visibleItems(item.children, state) } : item,
+        )
+        .filter((item) => item.children === undefined || item.children.length > 0),
+    }))
+    .filter((group) => group.items.length > 0)
 }
 
 /**

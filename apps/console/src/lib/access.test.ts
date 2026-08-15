@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { beyondReach, decideNavigation, safeRedirect, visibleItems } from '@/lib/access'
+import {
+  beyondReach,
+  decideNavigation,
+  safeRedirect,
+  visibleGroups,
+  visibleItems,
+} from '@/lib/access'
 
 /**
  * The route guard is tested here rather than through an assembled router.
@@ -11,6 +17,9 @@ import { beyondReach, decideNavigation, safeRedirect, visibleItems } from '@/lib
  * makes people click the same menu item over and over), and `next` from a query string
  * cannot be used to walk somebody off the site.
  */
+
+/** A stand-in for the lucide component a real nav item carries; nothing here renders. */
+const Icon = { name: 'Icon' }
 
 const anon = { authenticated: false, permissions: [] }
 const member = { authenticated: true, permissions: ['user.read'] }
@@ -103,5 +112,55 @@ describe('visibleItems', () => {
 
   it('filters what needs a permission and keeps what does not', () => {
     expect(visibleItems(items, member).map((item) => item.to)).toEqual(['/', '/users'])
+  })
+})
+
+describe('visibleGroups', () => {
+  const groups = [
+    {
+      label: 'General',
+      items: [
+        { to: '/', label: 'Overview', icon: Icon },
+        { to: '/users', label: 'Users', icon: Icon, permission: 'user.read' as const },
+      ],
+    },
+    {
+      label: 'Audit',
+      items: [
+        { to: '/audit-log', label: 'Audit log', icon: Icon, permission: 'audit.read' as const },
+      ],
+    },
+  ]
+
+  it('drops a group once everything inside it is out of reach', () => {
+    expect(visibleGroups(groups, member).map((group) => group.label)).toEqual(['General'])
+  })
+
+  it('keeps the group when at least one item survives', () => {
+    const auditor = { authenticated: true, permissions: ['audit.read'] }
+
+    expect(visibleGroups(groups, auditor)).toEqual([
+      { label: 'General', items: [{ to: '/', label: 'Overview', icon: Icon }] },
+      { label: 'Audit', items: groups[1]?.items },
+    ])
+  })
+
+  /** A row that expands is only worth rendering while something is left under it. */
+  it('filters children too, and drops a parent left with none', () => {
+    const nested = [
+      {
+        label: 'General',
+        items: [
+          {
+            to: '/reports',
+            label: 'Reports',
+            icon: Icon,
+            children: [{ to: '/reports/audit', label: 'Audit', permission: 'audit.read' as const }],
+          },
+        ],
+      },
+    ]
+
+    expect(visibleGroups(nested, member)).toEqual([])
   })
 })
