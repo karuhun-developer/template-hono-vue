@@ -1,21 +1,12 @@
 <script setup lang="ts">
-import {
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Input,
-  Label,
-  Skeleton,
-} from '@app/ui'
+import { Button, Input, Label, Skeleton } from '@app/ui'
 import { LoaderCircle } from '@lucide/vue'
 import type { InferResponseType } from 'hono/client'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import FailureAlert from '@/components/FailureAlert.vue'
+import AuthLayout from '@/layouts/AuthLayout.vue'
 import { LOGIN_PATH } from '@/lib/access'
 import { api } from '@/lib/api'
 import { networkFailure, readApiError, type ApiFailure } from '@/lib/api-error'
@@ -54,6 +45,21 @@ const submitting = ref(false)
 const expiry = computed(() =>
   invitation.value === null ? '' : formatDateTime(invitation.value.expiresAt, ''),
 )
+
+/** The heading says which of the three states this page is in before anything else does. */
+const heading = computed(() => {
+  if (loading.value) return 'Your invitation'
+  return invitation.value ? `Hello, ${invitation.value.name}` : 'This invitation is not valid'
+})
+
+const description = computed(() => {
+  if (loading.value) return 'Checking the link you followed.'
+  if (invitation.value) {
+    return `You were invited as ${invitation.value.email}. Choose a password to activate the account.`
+  }
+
+  return 'Invitation links usually expire, have already been used, or were cancelled. Ask whoever invited you to send a new one.'
+})
 
 onMounted(async () => {
   try {
@@ -118,89 +124,59 @@ function local(message: string): ApiFailure {
 </script>
 
 <template>
-  <div class="bg-muted/40 flex min-h-dvh items-center justify-center px-4 py-10">
-    <div class="w-full max-w-sm space-y-6">
-      <div class="space-y-1 text-center">
-        <h1 class="text-2xl font-semibold tracking-tight">Console</h1>
-        <p class="text-muted-foreground text-sm">One step left before you can sign in.</p>
+  <AuthLayout :heading="heading" :description="description">
+    <div v-if="loading" class="space-y-3">
+      <Skeleton class="h-10 w-full" />
+      <Skeleton class="h-10 w-full" />
+      <Skeleton class="h-10 w-full" />
+    </div>
+
+    <form v-else-if="invitation" class="space-y-4" novalidate @submit.prevent="submit">
+      <div class="space-y-2">
+        <Label for="password">New password</Label>
+        <Input
+          id="password"
+          v-model="password"
+          type="password"
+          autocomplete="new-password"
+          minlength="8"
+          required
+        />
+        <p class="text-muted-foreground text-xs">At least 8 characters.</p>
       </div>
 
-      <Card v-if="loading">
-        <CardContent class="space-y-3">
-          <Skeleton class="h-5 w-2/3" />
-          <Skeleton class="h-4 w-full" />
-          <Skeleton class="h-10 w-full" />
-        </CardContent>
-      </Card>
+      <div class="space-y-2">
+        <Label for="confirmation">Type it again</Label>
+        <Input
+          id="confirmation"
+          v-model="confirmation"
+          type="password"
+          autocomplete="new-password"
+          required
+        />
+      </div>
 
-      <Card v-else-if="invitation">
-        <CardHeader>
-          <CardTitle>Hello, {{ invitation.name }}</CardTitle>
-          <CardDescription>
-            You were invited as {{ invitation.email }}. Choose a password to activate the account.
-          </CardDescription>
-        </CardHeader>
+      <FailureAlert :failure="failure" />
 
-        <CardContent>
-          <form class="space-y-4" novalidate @submit.prevent="submit">
-            <div class="space-y-2">
-              <Label for="password">New password</Label>
-              <Input
-                id="password"
-                v-model="password"
-                type="password"
-                autocomplete="new-password"
-                minlength="8"
-                required
-              />
-              <p class="text-muted-foreground text-xs">At least 8 characters.</p>
-            </div>
+      <Button type="submit" class="w-full" :disabled="submitting">
+        <LoaderCircle v-if="submitting" class="animate-spin" />
+        {{ submitting ? 'Setting up…' : 'Activate and sign in' }}
+      </Button>
 
-            <div class="space-y-2">
-              <Label for="confirmation">Type it again</Label>
-              <Input
-                id="confirmation"
-                v-model="confirmation"
-                type="password"
-                autocomplete="new-password"
-                required
-              />
-            </div>
+      <p v-if="expiry" class="text-muted-foreground text-center text-xs">
+        This invitation is valid until {{ expiry }}.
+      </p>
+    </form>
 
-            <FailureAlert :failure="failure" />
-
-            <Button type="submit" class="w-full" :disabled="submitting">
-              <LoaderCircle v-if="submitting" class="animate-spin" />
-              {{ submitting ? 'Setting up…' : 'Activate and sign in' }}
-            </Button>
-
-            <p v-if="expiry" class="text-muted-foreground text-center text-xs">
-              This invitation is valid until {{ expiry }}.
-            </p>
-          </form>
-        </CardContent>
-      </Card>
-
-      <!--
-        An invalid invitation gets no "try again" button: reloading the same link will
-        never change the answer. The only person who can help is whoever sent it.
-      -->
-      <Card v-else>
-        <CardHeader>
-          <CardTitle>This invitation is not valid</CardTitle>
-          <CardDescription>
-            Invitation links usually expire, have already been used, or were cancelled. Ask whoever
-            invited you to send a new one.
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent class="space-y-3">
-          <FailureAlert :failure="failure" />
-          <Button variant="outline" class="w-full" @click="router.replace(LOGIN_PATH)">
-            Go to the sign-in page
-          </Button>
-        </CardContent>
-      </Card>
+    <!--
+      An invalid invitation gets no "try again" button: reloading the same link will never
+      change the answer. The only person who can help is whoever sent it.
+    -->
+    <div v-else class="space-y-3">
+      <FailureAlert :failure="failure" />
+      <Button variant="outline" class="w-full" @click="router.replace(LOGIN_PATH)">
+        Go to the sign-in page
+      </Button>
     </div>
-  </div>
+  </AuthLayout>
 </template>
