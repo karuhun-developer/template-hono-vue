@@ -57,9 +57,11 @@ const SORTABLE = {
 } as const satisfies Record<ListUsersSort, PgColumn>
 
 export type ListUsersFilter = {
-  status?: UserStatus | undefined
+  /** Any of these statuses. Empty or absent means all of them. */
+  status?: readonly UserStatus[] | undefined
   q?: string | undefined
-  roleId?: string | undefined
+  /** Anyone holding at least one of these roles. */
+  roleId?: readonly string[] | undefined
   page: number
   perPage: number
   sort: ListUsersSort
@@ -74,19 +76,21 @@ export type ListUsersPage = {
 
 export async function listUsers(filter: ListUsersFilter): Promise<ListUsersPage> {
   const where: SQL[] = [isNull(users.deletedAt)]
-  if (filter.status) where.push(eq(users.status, filter.status))
+  if (filter.status?.length) where.push(inArray(users.status, [...filter.status]))
   if (filter.q) {
     const needle = `%${escapeLike(filter.q)}%`
     where.push(or(ilike(users.name, needle), ilike(users.email, needle)) as SQL)
   }
-  if (filter.roleId) {
+  if (filter.roleId?.length) {
+    // A subquery rather than a join: joining `user_roles` multiplies a user by the number
+    // of roles they hold, which would repeat rows here and inflate the count beside them.
     where.push(
       inArray(
         users.id,
         db
           .select({ userId: userRoles.userId })
           .from(userRoles)
-          .where(eq(userRoles.roleId, filter.roleId)),
+          .where(inArray(userRoles.roleId, [...filter.roleId])),
       ),
     )
   }

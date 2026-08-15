@@ -28,6 +28,8 @@ const OWNER = emailFor(TAG, 'owner')
 /** Holds `user.invite` and `user.update`, but nothing dangerous — the escalation subject. */
 const RECRUITER = emailFor(TAG, 'recruiter')
 const MEMBER = emailFor(TAG, 'member')
+/** Switched off, and holding nothing — here so a status filter has two answers to pick from. */
+const DORMANT = emailFor(TAG, 'dormant')
 
 let ownerCookie: string
 let recruiterCookie: string
@@ -35,6 +37,7 @@ let memberCookie: string
 let memberId: string
 let ownerId: string
 let powerfulRoleId: string
+let recruiterRoleId: string
 let plainRoleId: string
 
 beforeAll(async () => {
@@ -50,7 +53,7 @@ beforeAll(async () => {
     'role.manage',
     'audit.read',
   ])
-  const recruiterRoleId = await createRole(TAG, 'recruiter', [
+  recruiterRoleId = await createRole(TAG, 'recruiter', [
     'user.read',
     'user.invite',
     'user.update',
@@ -60,6 +63,7 @@ beforeAll(async () => {
   ownerId = await createUser(OWNER, { name: 'Owner', roleIds: [powerfulRoleId] })
   await createUser(RECRUITER, { name: 'Recruiter', roleIds: [recruiterRoleId] })
   memberId = await createUser(MEMBER, { name: 'Member', roleIds: [plainRoleId] })
+  await createUser(DORMANT, { name: 'Dormant', status: 'disabled' })
 
   ownerCookie = await login(app, OWNER)
   recruiterCookie = await login(app, RECRUITER)
@@ -101,6 +105,30 @@ describe('GET /users', () => {
     const body = (await res.json()) as { items: { email: string }[] }
 
     expect(body.items.map((item) => item.email)).toEqual([MEMBER])
+  })
+
+  /**
+   * The console's facet filters are checkbox lists, so they send the same parameter once
+   * per tick. A schema that only understood a single value would answer the first tick and
+   * drop the rest, which looks like rows going missing.
+   */
+  it('takes a filter given more than once as a set', async () => {
+    const statuses = await request(app, '/users?perPage=100&status=active&status=disabled', {
+      cookie: ownerCookie,
+    })
+    const byStatus = (await statuses.json()) as Page
+
+    expect(byStatus.items.map((item) => item.email)).toContain(DORMANT)
+    expect(byStatus.items.map((item) => item.email)).toContain(MEMBER)
+
+    const roles = await request(
+      app,
+      `/users?perPage=100&roleId=${plainRoleId}&roleId=${recruiterRoleId}`,
+      { cookie: ownerCookie },
+    )
+    const byRole = (await roles.json()) as Page
+
+    expect(byRole.items.map((item) => item.email).sort()).toEqual([MEMBER, RECRUITER].sort())
   })
 
   it('pages, and page two does not repeat page one', async () => {

@@ -46,12 +46,29 @@ export type UpdateUserBody = z.infer<typeof updateUserBody>
  * injection point, so the set of orderings the API accepts is written down here and
  * mapped to actual columns in the repository. Nothing else can reach the query.
  */
+const userStatus = z.enum(['invited', 'active', 'disabled'])
+
+/**
+ * A filter that may be given more than once.
+ *
+ * `?status=active&status=invited` reaches the handler as an array and `?status=active` as
+ * a plain string; both mean a set, so the schema flattens them into one and the repository
+ * only ever sees a list. Without this the second value would either be dropped silently or
+ * rejected as invalid, and a filter that quietly ignores half of what you picked is worse
+ * than one that refuses.
+ */
+function repeatable<T extends z.ZodTypeAny>(value: T) {
+  return z
+    .union([value, z.array(value)])
+    .transform((given) => (Array.isArray(given) ? given : [given]) as z.output<T>[])
+}
+
 export const listUsersQuery = z.object({
-  status: z.enum(['invited', 'active', 'disabled']).optional(),
+  status: repeatable(userStatus).optional(),
   /** Matched against the name or the email. */
   q: z.string().trim().max(120).optional(),
-  /** Everyone holding this role. Exact match on the id — role names are not unique enough. */
-  roleId: uuid.optional(),
+  /** Everyone holding any of these roles. Exact match on the id — role names repeat. */
+  roleId: repeatable(uuid).optional(),
 
   /** Coerced because query strings are text; capped for the reason given on `perPage`. */
   page: z.coerce.number().int().min(1).default(1),
