@@ -54,12 +54,12 @@ Then open <http://localhost:7301>.
 
 Created by `make seed`, which refuses to run with `NODE_ENV=production`. Change `SEED_OWNER_*` in `.env` before seeding anything real.
 
-| Email               | Password      | Role          | Why it exists                                                                                     |
-| ------------------- | ------------- | ------------- | ------------------------------------------------------------------------------------------------- |
-| `owner@example.com` | `password123` | Owner         | Full access; new permissions reach it automatically                                               |
-| `admin@example.com` | `password123` | Administrator | Holds neither `user.disable` nor `audit.read`, so the grantable rule has something to demonstrate |
+| Email               | Password      | Role          | Why it exists                                                                         |
+| ------------------- | ------------- | ------------- | ------------------------------------------------------------------------------------- |
+| `owner@example.com` | `password123` | Owner         | Full access; new permissions reach it automatically                                   |
+| `admin@example.com` | `password123` | Administrator | Holds none of the owner-only keys, so the grantable rule has something to demonstrate |
 
-Sign in as the administrator to see the grantable rule without setting anything up: those two permissions render disabled in the role matrix, and opening the **Owner** role gives a locked one.
+Sign in as the administrator to see the grantable rule without setting anything up: those permissions render disabled in the role matrix, and opening the **Owner** role gives a locked one.
 
 To see the invitation flow instead, invite a third account from **Users → Invite**. The invitation link is shown once, in a dialog, and never again — there is no email delivery in this template.
 
