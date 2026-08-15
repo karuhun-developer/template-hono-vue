@@ -1,7 +1,9 @@
-import { and, asc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm'
+import type { PgColumn } from 'drizzle-orm/pg-core'
 
 import { db, type DatabaseHandle } from '#db/client'
 import { roles, userRoles, users, type UserStatus } from '#db/schema'
+import type { ListUsersSort } from '#modules/users/users.schema'
 
 /**
  * Reading and writing the user list and the roles attached to it.
@@ -39,26 +41,77 @@ const userColumns = {
   createdAt: users.createdAt,
 } as const
 
+/**
+ * The orderings this table offers, mapped to the columns behind them.
+ *
+ * A whitelist, not a lookup convenience: `sort` arrives from a query string, and the only
+ * reason it can never carry SQL is that it is used to *pick* from this object rather than
+ * being interpolated anywhere. The keys are the same enum `listUsersQuery` validates.
+ */
+const SORTABLE = {
+  name: users.name,
+  email: users.email,
+  status: users.status,
+  lastLoginAt: users.lastLoginAt,
+  createdAt: users.createdAt,
+} as const satisfies Record<ListUsersSort, PgColumn>
+
 export type ListUsersFilter = {
   status?: UserStatus | undefined
   q?: string | undefined
+  roleId?: string | undefined
+  page: number
+  perPage: number
+  sort: ListUsersSort
+  order: 'asc' | 'desc'
 }
 
-export async function listUsers(filter: ListUsersFilter): Promise<UserWithRoles[]> {
+export type ListUsersPage = {
+  rows: UserWithRoles[]
+  /** Rows matching the filter, not rows returned — the pager needs the first number. */
+  total: number
+}
+
+export async function listUsers(filter: ListUsersFilter): Promise<ListUsersPage> {
   const where: SQL[] = [isNull(users.deletedAt)]
   if (filter.status) where.push(eq(users.status, filter.status))
   if (filter.q) {
     const needle = `%${escapeLike(filter.q)}%`
     where.push(or(ilike(users.name, needle), ilike(users.email, needle)) as SQL)
   }
+  if (filter.roleId) {
+    where.push(
+      inArray(
+        users.id,
+        db
+          .select({ userId: userRoles.userId })
+          .from(userRoles)
+          .where(eq(userRoles.roleId, filter.roleId)),
+      ),
+    )
+  }
 
-  const rows = await db
-    .select(userColumns)
-    .from(users)
-    .where(and(...where))
-    .orderBy(asc(users.name))
+  const condition = and(...where)
+  const direction = filter.order === 'desc' ? desc : asc
 
-  return attachRoles(db, rows)
+  const [rows, [counted]] = await Promise.all([
+    db
+      .select(userColumns)
+      .from(users)
+      .where(condition)
+      // `id` breaks ties. Sorting by `status` alone leaves rows with the same status in
+      // whatever order the plan happens to produce, and two pages of an unstable sort can
+      // show the same person twice while skipping somebody else entirely.
+      .orderBy(direction(SORTABLE[filter.sort]), asc(users.id))
+      .limit(filter.perPage)
+      .offset((filter.page - 1) * filter.perPage),
+
+    // The same `where`, deliberately. A count over a different condition is a pager that
+    // promises pages which are not there.
+    db.select({ value: count() }).from(users).where(condition),
+  ])
+
+  return { rows: await attachRoles(db, rows), total: counted?.value ?? 0 }
 }
 
 export async function findUser(handle: DatabaseHandle, id: string): Promise<UserWithRoles | null> {

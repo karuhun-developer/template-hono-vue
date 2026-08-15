@@ -71,6 +71,9 @@ afterAll(async () => {
   await closeDatabase()
 })
 
+/** The envelope every list endpoint answers with. */
+type Page = { items: { email: string }[]; total: number; page: number; perPage: number }
+
 describe('GET /users', () => {
   it('needs a session', async () => {
     expect((await request(app, '/users')).status).toBe(401)
@@ -91,6 +94,73 @@ describe('GET /users', () => {
     const body = (await res.json()) as { items: { email: string }[] }
 
     expect(body.items.map((item) => item.email)).toEqual([RECRUITER])
+  })
+
+  it('filters by role', async () => {
+    const res = await request(app, `/users?roleId=${plainRoleId}`, { cookie: ownerCookie })
+    const body = (await res.json()) as { items: { email: string }[] }
+
+    expect(body.items.map((item) => item.email)).toEqual([MEMBER])
+  })
+
+  it('pages, and page two does not repeat page one', async () => {
+    const query = 'perPage=2&sort=email&order=asc'
+
+    const first = await request(app, `/users?${query}`, { cookie: ownerCookie })
+    const page1 = (await first.json()) as Page
+
+    expect(page1.items).toHaveLength(2)
+    expect(page1.page).toBe(1)
+    expect(page1.perPage).toBe(2)
+    expect(page1.total).toBeGreaterThanOrEqual(3)
+
+    const second = await request(app, `/users?${query}&page=2`, { cookie: ownerCookie })
+    const page2 = (await second.json()) as Page
+
+    expect(page2.page).toBe(2)
+    expect(page2.total).toBe(page1.total)
+
+    const seen = page1.items.map((item) => item.email)
+    expect(page2.items.some((item) => seen.includes(item.email))).toBe(false)
+  })
+
+  it('counts what the filter matches, not the whole table', async () => {
+    const all = (await (
+      await request(app, '/users?perPage=1', { cookie: ownerCookie })
+    ).json()) as Page
+    const filtered = (await (
+      await request(app, '/users?perPage=1&q=recruiter', { cookie: ownerCookie })
+    ).json()) as Page
+
+    expect(filtered.total).toBe(1)
+    expect(all.total).toBeGreaterThan(filtered.total)
+  })
+
+  it('sorts both ways over the same rows', async () => {
+    const up = (await (
+      await request(app, '/users?perPage=100&sort=email&order=asc', { cookie: ownerCookie })
+    ).json()) as Page
+    const down = (await (
+      await request(app, '/users?perPage=100&sort=email&order=desc', { cookie: ownerCookie })
+    ).json()) as Page
+
+    expect(down.items.map((item) => item.email)).toEqual(
+      [...up.items.map((item) => item.email)].reverse(),
+    )
+  })
+
+  /**
+   * The two ways somebody probes a list endpoint. Neither reaches the database: `perPage`
+   * is capped and `sort` is an enum, so an unknown column name is a validation failure
+   * rather than a query.
+   */
+  it('refuses a page size past the cap and a sort key that is not on the list', async () => {
+    const huge = await request(app, '/users?perPage=99999', { cookie: ownerCookie })
+    expect(huge.status).toBe(400)
+
+    const injected = await request(app, '/users?sort=password_hash', { cookie: ownerCookie })
+    expect(injected.status).toBe(400)
+    expect(await injected.json()).toMatchObject({ error: { code: 'bad_request' } })
   })
 })
 

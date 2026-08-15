@@ -47,8 +47,30 @@ export type InviteResult = {
 
 // --- Read -------------------------------------------------------------------
 
-export async function listVisibleUsers(query: ListUsersQuery): Promise<UserWithRoles[]> {
-  return listUsers({ status: query.status, q: query.q })
+export type UserListPage = {
+  items: UserWithRoles[]
+  total: number
+  page: number
+  perPage: number
+}
+
+/**
+ * The page is echoed back rather than left for the client to remember. It is the only way
+ * a caller can tell that `?page=99` on a three-page list gave it nothing because it asked
+ * past the end, and not because the filter matched nothing.
+ */
+export async function listVisibleUsers(query: ListUsersQuery): Promise<UserListPage> {
+  const { rows, total } = await listUsers({
+    status: query.status,
+    q: query.q,
+    roleId: query.roleId,
+    page: query.page,
+    perPage: query.perPage,
+    sort: query.sort,
+    order: query.order,
+  })
+
+  return { items: rows, total, page: query.page, perPage: query.perPage }
 }
 
 // --- Write ------------------------------------------------------------------

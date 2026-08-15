@@ -38,10 +38,33 @@ export const updateUserBody = z
 
 export type UpdateUserBody = z.infer<typeof updateUserBody>
 
+/**
+ * Reading the list.
+ *
+ * `sort` is an enum rather than a string, and that is the whole security story of this
+ * endpoint: a column name that arrives as text and is spliced into an `ORDER BY` is an
+ * injection point, so the set of orderings the API accepts is written down here and
+ * mapped to actual columns in the repository. Nothing else can reach the query.
+ */
 export const listUsersQuery = z.object({
   status: z.enum(['invited', 'active', 'disabled']).optional(),
   /** Matched against the name or the email. */
   q: z.string().trim().max(120).optional(),
+  /** Everyone holding this role. Exact match on the id — role names are not unique enough. */
+  roleId: uuid.optional(),
+
+  /** Coerced because query strings are text; capped for the reason given on `perPage`. */
+  page: z.coerce.number().int().min(1).default(1),
+  /**
+   * The ceiling is what stops a crafted `?perPage=100000` from turning one request into a
+   * full table read. The default matches what the console asks for.
+   */
+  perPage: z.coerce.number().int().min(1).max(100).default(10),
+
+  sort: z.enum(['name', 'email', 'status', 'lastLoginAt', 'createdAt']).default('name'),
+  order: z.enum(['asc', 'desc']).default('asc'),
 })
 
 export type ListUsersQuery = z.infer<typeof listUsersQuery>
+
+export type ListUsersSort = ListUsersQuery['sort']

@@ -43,7 +43,9 @@ export const userRoutes = new Hono<AppBindings>()
     requirePermission('user.read'),
     zValidator('query', listUsersQuery, validationHook),
     async (c) => {
-      return c.json({ items: await listVisibleUsers(c.req.valid('query')) })
+      // `{ items, total, page, perPage }`, handed back whole: the envelope is the contract
+      // every list in this API answers with, and the console's derived types read `items`.
+      return c.json(await listVisibleUsers(c.req.valid('query')))
     },
   )
 
