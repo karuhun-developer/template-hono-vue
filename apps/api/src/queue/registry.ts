@@ -1,7 +1,13 @@
 import type { Logger } from 'pino'
 import { z } from 'zod'
 
-import { purgeInvitesJob, purgeResetsJob, pruneSessionsJob, reapJobsJob } from '#queue/jobs/cleanup'
+import {
+  purgeInvitesJob,
+  purgeResetsJob,
+  pruneSessionsJob,
+  reapJobsJob,
+  sweepCacheJob,
+} from '#queue/jobs/cleanup'
 import { pruneMailJob, sendMailJob, sweepStuckMailJob } from '#queue/jobs/mail'
 
 /**
@@ -81,6 +87,9 @@ export const JOBS = {
    * the database is unwell is the last thing that database needs.
    */
   'queue.reap': { payload: NO_PAYLOAD, handler: reapJobsJob, maxAttempts: 1 },
+
+  /** One attempt, for the reason above: the next tick is ten minutes away, not three. */
+  'cache.sweep': { payload: NO_PAYLOAD, handler: sweepCacheJob, maxAttempts: 1 },
 } as const satisfies JobCatalog
 
 export type JobName = keyof typeof JOBS

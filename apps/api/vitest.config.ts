@@ -27,6 +27,10 @@ const TEST_ENV = {
   // The default anyway, and pinned so it stays true whatever a developer's `.env` says:
   // a suite that quietly started talking to a real SMTP server would send real email.
   MAIL_DRIVER: 'log',
+  // Likewise pinned. The cache suite builds each driver directly, so this only decides what
+  // the singleton is — and a singleton pointed at a shared store would let one suite's
+  // entries be read by the next one.
+  CACHE_DRIVER: 'memory',
   // Every rendered link is built from this, so an assertion about a link is only stable
   // if the origin is. It matches CORS_ORIGINS above, which the cross-field rule requires.
   CONSOLE_URL: 'http://localhost:7301',

@@ -1,3 +1,4 @@
+import { deleteExpiredCacheEntries } from '#cache/cache.repo'
 import { db } from '#db/client'
 import { env } from '#env'
 import { purgeExpiredInvites } from '#platform/invite.repo'
@@ -40,6 +41,20 @@ export async function purgeInvitesJob(_payload: unknown, ctx: JobContext): Promi
 export async function purgeResetsJob(_payload: unknown, ctx: JobContext): Promise<void> {
   const cleared = await purgeExpiredResets()
   ctx.logger.info({ cleared }, 'purged expired password resets')
+}
+
+/**
+ * Delete cache entries whose TTL has passed.
+ *
+ * Hygiene, like the first three, and for a reason worth stating: `readCacheEntry` filters
+ * on `expires_at > now()` in SQL, so an expired row is already unreachable — this only
+ * stops the table from growing. It is also a no-op under `CACHE_DRIVER=memory` (which
+ * expires lazily in the process) and under `redis` (which expires entries itself), because
+ * neither writes a row here for it to find.
+ */
+export async function sweepCacheJob(_payload: unknown, ctx: JobContext): Promise<void> {
+  const removed = await deleteExpiredCacheEntries(db)
+  ctx.logger.info({ removed, driver: env.CACHE_DRIVER }, 'swept expired cache entries')
 }
 
 /**

@@ -222,6 +222,38 @@ const envSchema = z
     SCHEDULER_CATCHUP_MINUTES: z.coerce.number().int().min(1).max(1440).default(60),
 
     /**
+     * Where cached values live.
+     *
+     * `memory` is the default because it is the only one that needs nothing: a fresh clone
+     * caches in a `Map` and is correct, as long as there is one process. It stops being
+     * correct the moment there are two — an entry invalidated on one replica stays served
+     * by the other — which is why `docs/features/cache.md` says so in bold and why nothing
+     * in this template caches anything by default.
+     *
+     * `database` shares the cache across replicas using Postgres, which is already there.
+     * `redis` is the fast one, and the cross-field rule below refuses to boot without a URL.
+     */
+    CACHE_DRIVER: z.enum(['memory', 'database', 'redis']).default('memory'),
+
+    /**
+     * In front of every cache key.
+     *
+     * The point is a shared Redis or a shared database: two installations reading each
+     * other's entries is a bug that looks like data corruption, and `clear()` without a
+     * namespace to stay inside is one installation emptying another's cache.
+     */
+    CACHE_PREFIX: z.string().min(1).max(64).default('app:'),
+
+    /**
+     * The cap on the `memory` driver, in entries. Ignored by the other two, which are
+     * bounded by the store they live in.
+     *
+     * A `Map` with no ceiling is a memory leak wearing a cache's clothes — slow, invisible,
+     * and fatal on the one process that happens to see unusual traffic.
+     */
+    CACHE_MAX_ENTRIES: z.coerce.number().int().min(1).max(1_000_000).default(10_000),
+
+    /**
      * How email leaves this process.
      *
      * `log` is the default, and it is a real driver rather than a stub: it writes the
@@ -301,12 +333,16 @@ const envSchema = z
       })
     }
 
-    if (config.QUEUE_DRIVER === 'redis' && !config.REDIS_URL) {
+    const wantsRedis = [
+      config.QUEUE_DRIVER === 'redis' ? 'QUEUE_DRIVER' : null,
+      config.CACHE_DRIVER === 'redis' ? 'CACHE_DRIVER' : null,
+    ].filter((name) => name !== null)
+
+    if (wantsRedis.length > 0 && !config.REDIS_URL) {
       ctx.addIssue({
         code: 'custom',
         path: ['REDIS_URL'],
-        message:
-          'is required when QUEUE_DRIVER=redis — write it as redis://localhost:7379. Without it nothing would fail until the first enqueue, which is a request, in production, at the worst moment.',
+        message: `is required when ${wantsRedis.join(' or ')} is redis — write it as redis://localhost:7379. Without it nothing would fail until the first enqueue or the first cache read, which is a request, in production, at the worst moment.`,
       })
     }
 

@@ -78,6 +78,12 @@ export const SCHEDULES = [
     job: 'queue.reap',
     description: 'Hand back jobs a worker died holding.',
   },
+  {
+    key: 'cache.sweep',
+    cron: '*/10 * * * *',
+    job: 'cache.sweep',
+    description: 'Delete cache entries that have expired.',
+  },
 ] as const satisfies readonly ScheduleDefinition[]
 
 export type ScheduleKey = (typeof SCHEDULES)[number]['key']

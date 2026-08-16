@@ -1,6 +1,6 @@
 # Scheduler
 
-Cron, without the double fires. Six things run periodically, and no two replicas ever run the same one.
+Cron, without the double fires. Seven things run periodically, and no two replicas ever run the same one.
 
 | Concern                   | File                                      |
 | ------------------------- | ----------------------------------------- |
@@ -13,14 +13,15 @@ Cron, without the double fires. Six things run periodically, and no two replicas
 
 ## What runs
 
-| Key                     | Cron          | Job                     |
-| ----------------------- | ------------- | ----------------------- |
-| `sessions.prune`        | `15 3 * * *`  | `sessions.prune`        |
-| `invites.purge`         | `30 3 * * *`  | `invites.purge`         |
-| `password-resets.purge` | `35 3 * * *`  | `password-resets.purge` |
-| `mail.prune`            | `0 4 * * *`   | `mail.prune`            |
-| `mail.sweep-stuck`      | `*/5 * * * *` | `mail.sweep-stuck`      |
-| `queue.reap`            | `*/5 * * * *` | `queue.reap`            |
+| Key                     | Cron           | Job                     |
+| ----------------------- | -------------- | ----------------------- |
+| `sessions.prune`        | `15 3 * * *`   | `sessions.prune`        |
+| `invites.purge`         | `30 3 * * *`   | `invites.purge`         |
+| `password-resets.purge` | `35 3 * * *`   | `password-resets.purge` |
+| `mail.prune`            | `0 4 * * *`    | `mail.prune`            |
+| `mail.sweep-stuck`      | `*/5 * * * *`  | `mail.sweep-stuck`      |
+| `queue.reap`            | `*/5 * * * *`  | `queue.reap`            |
+| `cache.sweep`           | `*/10 * * * *` | `cache.sweep`           |
 
 The nightly four are spaced fifteen minutes apart rather than all set to `0 3 * * *`. They are cheap, but four table scans starting in the same second is a spike for no reason, and staggering them makes a slow one obvious in the log rather than tangled with the others.
 
