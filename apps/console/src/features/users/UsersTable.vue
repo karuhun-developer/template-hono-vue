@@ -15,7 +15,7 @@ import {
   Input,
   type DataTableColumn,
 } from '@app/ui'
-import { Ellipsis, MailPlus, Pencil, Search, X } from '@lucide/vue'
+import { Ellipsis, KeyRound, MailPlus, Pencil, RotateCcw, Search, Trash2, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 
 import type { UserStatus, UserSummary } from '@/features/users/api'
@@ -50,6 +50,9 @@ const emit = defineEmits<{
   edit: [user: UserSummary]
   resend: [user: UserSummary]
   status: [user: UserSummary, next: 'active' | 'disabled']
+  resetPassword: [user: UserSummary]
+  remove: [user: UserSummary]
+  restore: [user: UserSummary]
   bulkDisable: [users: UserSummary[]]
 }>()
 
@@ -58,14 +61,28 @@ const session = useSessionStore()
 // Destructured once: the composable hands back refs, and the object it returns never gets
 // replaced. `<script setup>` unwraps them in the template; reading `props.list.page` there
 // would not.
-const { rows, total, loading, search, sort, page, perPage, filtered, statuses, roleIds, reset } =
-  props.list
+const {
+  rows,
+  total,
+  loading,
+  search,
+  sort,
+  page,
+  perPage,
+  filtered,
+  statuses,
+  roleIds,
+  deleted,
+  reset,
+} = props.list
 
 const selected = ref<string[]>([])
 
 const canInvite = computed(() => session.can('user.invite'))
 const canUpdate = computed(() => session.can('user.update'))
 const canDisable = computed(() => session.can('user.disable'))
+const canDelete = computed(() => session.can('user.delete'))
+const canResetPassword = computed(() => session.can('user.reset_password'))
 
 const STATUS_LABEL: Record<UserStatus, string> = {
   invited: 'Invited',
@@ -85,6 +102,13 @@ const STATUS_FACETS = (Object.keys(STATUS_LABEL) as UserStatus[]).map((value) =>
 }))
 
 const roleFacets = computed(() => props.roles.map((role) => ({ value: role.id, label: role.name })))
+
+/**
+ * One option, because it is one switch. A facet rather than a checkbox so that ticking it
+ * resets the page and clears with Reset like every other way of narrowing this list — see
+ * the note on `deleted` in `useUsersList`.
+ */
+const DELETED_FACETS = [{ value: 'include', label: 'Include deleted accounts' }]
 
 /**
  * The columns.
@@ -111,6 +135,7 @@ const disablable = computed(() =>
     (user) =>
       selected.value.includes(user.id) &&
       user.status !== 'disabled' &&
+      user.deletedAt === null &&
       user.id !== session.user?.id,
   ),
 )
@@ -150,19 +175,33 @@ function onBulkDisable(): void {
         :options="roleFacets"
       />
 
+      <DataTableFacetedFilter
+        v-if="canDelete"
+        v-model="deleted"
+        label="Deleted"
+        :options="DELETED_FACETS"
+      />
+
       <Button v-if="filtered" variant="ghost" size="sm" @click="reset">
         Reset
         <X />
       </Button>
     </template>
 
+    <!--
+      A deleted row is struck through rather than dropped: it is only visible at all because
+      somebody ticked "Include deleted accounts", and the answer to "why can I not invite
+      this address" is easier to see than to explain.
+    -->
     <template #cell:name="{ row }">
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-3" :class="{ 'opacity-60': row.deletedAt }">
         <Avatar class="size-8">
           <AvatarFallback>{{ initialsOf(row.name) }}</AvatarFallback>
         </Avatar>
         <div class="min-w-0">
-          <p class="truncate font-medium">{{ row.name }}</p>
+          <p class="truncate font-medium" :class="{ 'line-through': row.deletedAt }">
+            {{ row.name }}
+          </p>
           <p class="text-muted-foreground truncate text-xs">{{ row.email }}</p>
         </div>
       </div>
@@ -178,12 +217,14 @@ function onBulkDisable(): void {
     </template>
 
     <template #cell:status="{ row }">
-      <Badge :variant="STATUS_VARIANT[row.status]">{{ STATUS_LABEL[row.status] }}</Badge>
+      <Badge v-if="row.deletedAt" variant="secondary">Deleted</Badge>
+      <Badge v-else :variant="STATUS_VARIANT[row.status]">{{ STATUS_LABEL[row.status] }}</Badge>
     </template>
 
     <template #cell:lastLoginAt="{ row }">
       <span class="text-muted-foreground text-sm">
-        <template v-if="row.status === 'invited'">
+        <template v-if="row.deletedAt">Deleted {{ formatDateTime(row.deletedAt) }}</template>
+        <template v-else-if="row.status === 'invited'">
           Invited until {{ formatDateTime(row.inviteExpiresAt) }}
         </template>
         <template v-else-if="row.lastLoginAt">{{ formatDateTime(row.lastLoginAt) }}</template>
@@ -203,40 +244,77 @@ function onBulkDisable(): void {
           </Button>
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent align="end" class="w-44">
-          <DropdownMenuItem v-if="canUpdate" @select="emit('edit', row)">
-            <Pencil />
-            Edit
-          </DropdownMenuItem>
-
-          <DropdownMenuItem
-            v-if="canInvite && row.status === 'invited'"
-            @select="emit('resend', row)"
-          >
-            <MailPlus />
-            Re-send invitation
-          </DropdownMenuItem>
-
+        <DropdownMenuContent align="end" class="w-52">
           <!--
-            Disabling your own account is refused by the API. The item is left out rather
-            than shown and then explained, because there is no version of that click that
-            was going to work.
+            A deleted account is offered one thing: put it back. Editing the name of
+            somebody who has been removed, or starting a password reset they can never
+            complete, are both clicks with nothing behind them.
           -->
-          <template v-if="canDisable && row.id !== session.user?.id">
-            <DropdownMenuSeparator v-if="canUpdate" />
-            <DropdownMenuItem
-              v-if="row.status === 'disabled'"
-              @select="emit('status', row, 'active')"
-            >
-              Enable
+          <DropdownMenuItem v-if="row.deletedAt" @select="emit('restore', row)">
+            <RotateCcw />
+            Restore
+          </DropdownMenuItem>
+
+          <template v-else>
+            <DropdownMenuItem v-if="canUpdate" @select="emit('edit', row)">
+              <Pencil />
+              Edit
             </DropdownMenuItem>
+
             <DropdownMenuItem
-              v-else
-              variant="destructive"
-              @select="emit('status', row, 'disabled')"
+              v-if="canInvite && row.status === 'invited'"
+              @select="emit('resend', row)"
             >
-              Disable
+              <MailPlus />
+              Re-send invitation
             </DropdownMenuItem>
+
+            <!--
+              Only for an account that has a password to reset. An invited one has never
+              had one and a disabled one must not sign in at all — the API refuses both by
+              name, and this keeps people from finding that out by clicking.
+            -->
+            <DropdownMenuItem
+              v-if="canResetPassword && row.status === 'active'"
+              @select="emit('resetPassword', row)"
+            >
+              <KeyRound />
+              Reset password
+            </DropdownMenuItem>
+
+            <!--
+              Disabling or deleting your own account is refused by the API. The items are
+              left out rather than shown and then explained, because there is no version of
+              those clicks that was going to work.
+            -->
+            <template v-if="row.id !== session.user?.id">
+              <DropdownMenuSeparator v-if="canUpdate && (canDisable || canDelete)" />
+
+              <template v-if="canDisable">
+                <DropdownMenuItem
+                  v-if="row.status === 'disabled'"
+                  @select="emit('status', row, 'active')"
+                >
+                  Enable
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  v-else
+                  variant="destructive"
+                  @select="emit('status', row, 'disabled')"
+                >
+                  Disable
+                </DropdownMenuItem>
+              </template>
+
+              <DropdownMenuItem
+                v-if="canDelete"
+                variant="destructive"
+                @select="emit('remove', row)"
+              >
+                <Trash2 />
+                Delete
+              </DropdownMenuItem>
+            </template>
           </template>
         </DropdownMenuContent>
       </DropdownMenu>

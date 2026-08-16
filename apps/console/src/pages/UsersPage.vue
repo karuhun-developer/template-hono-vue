@@ -5,7 +5,15 @@ import { computed, ref } from 'vue'
 
 import FailureAlert from '@/components/FailureAlert.vue'
 import { useRoleOptions } from '@/features/roles/useRoleOptions'
-import { resendInvite, setUserStatus, type UserSaved, type UserSummary } from '@/features/users/api'
+import {
+  deleteUser,
+  resendInvite,
+  resetUserPassword,
+  restoreUser,
+  setUserStatus,
+  type UserSaved,
+  type UserSummary,
+} from '@/features/users/api'
 import InviteTokenDialog from '@/features/users/InviteTokenDialog.vue'
 import UserFormDialog from '@/features/users/UserFormDialog.vue'
 import UsersTable from '@/features/users/UsersTable.vue'
@@ -19,8 +27,8 @@ import { useSessionStore } from '@/stores/session'
  * table asks for something. The table itself is `features/users/UsersTable.vue`, so any
  * other screen that needs this list can mount it without inheriting this page's buttons.
  *
- * The invitation link appears exactly once, in a dialog, right after it is issued. It can
- * never be read back from the list: what the database holds is only its hash.
+ * An invitation or reset link appears exactly once, in a dialog, right after it is issued.
+ * Neither can be read back from the list: what the database holds is only their hash.
  */
 
 const session = useSessionStore()
@@ -39,13 +47,19 @@ const formOpen = ref(false)
 const editing = ref<UserSummary | null>(null)
 
 const tokenOpen = ref(false)
-const issued = ref<{ email: string; token: string; expiresAt: string | null } | null>(null)
+const issued = ref<{
+  kind: 'invite' | 'reset'
+  email: string
+  token: string | null
+  expiresAt: string | null
+} | null>(null)
 
-const canInvite = computed(() => session.can('user.invite'))
+/** Either key opens the dialog; which mode it lands in is `dialogMode()` inside it. */
+const canAdd = computed(() => session.can('user.invite') || session.can('user.create'))
 
 /* ------------------------------------------------------------------------------ actions */
 
-function openInvite(): void {
+function openAdd(): void {
   editing.value = null
   formOpen.value = true
 }
@@ -58,11 +72,20 @@ function openEdit(user: UserSummary): void {
 function onSaved(result: UserSaved): void {
   void list.reload()
 
-  if (result.inviteToken) showToken(result.user.email, result.inviteToken, result.inviteExpiresAt)
+  // Only the invite path carries one. Creating an account outright has no link to show,
+  // and editing has nothing to issue.
+  if (result.inviteToken) {
+    showLink('invite', result.user.email, result.inviteToken, result.inviteExpiresAt)
+  }
 }
 
-function showToken(email: string, token: string, expiresAt?: string): void {
-  issued.value = { email, token, expiresAt: expiresAt ?? null }
+function showLink(
+  kind: 'invite' | 'reset',
+  email: string,
+  token: string | null,
+  expiresAt?: string | null,
+): void {
+  issued.value = { kind, email, token, expiresAt: expiresAt ?? null }
   tokenOpen.value = true
 }
 
@@ -75,7 +98,20 @@ async function onResend(user: UserSummary): Promise<void> {
     return
   }
 
-  showToken(user.email, result.data.inviteToken, result.data.inviteExpiresAt)
+  showLink('invite', user.email, result.data.inviteToken, result.data.inviteExpiresAt)
+  await list.reload()
+}
+
+async function onResetPassword(user: UserSummary): Promise<void> {
+  list.failure.value = null
+
+  const result = await resetUserPassword(user.id)
+  if ('failure' in result) {
+    list.failure.value = result.failure
+    return
+  }
+
+  showLink('reset', user.email, result.data.resetToken, result.data.resetExpiresAt)
   await list.reload()
 }
 
@@ -83,6 +119,41 @@ async function onStatus(user: UserSummary, next: 'active' | 'disabled'): Promise
   list.failure.value = null
 
   const result = await setUserStatus(user.id, next)
+  if ('failure' in result) {
+    list.failure.value = result.failure
+    return
+  }
+
+  await list.reload()
+}
+
+/**
+ * Deleting is soft and reversible, and the confirmation says so rather than warning about
+ * something that is not true. What it does warn about is the part that is not undone by
+ * Restore: the address stays reserved, because releasing it would let a new account inherit
+ * this one's audit trail.
+ */
+async function onRemove(user: UserSummary): Promise<void> {
+  const confirmed = window.confirm(
+    `Delete ${user.name}? They lose access immediately, and their email address stays reserved. You can restore the account afterwards.`,
+  )
+  if (!confirmed) return
+
+  list.failure.value = null
+
+  const result = await deleteUser(user.id)
+  if ('failure' in result) {
+    list.failure.value = result.failure
+    return
+  }
+
+  await list.reload()
+}
+
+async function onRestore(user: UserSummary): Promise<void> {
+  list.failure.value = null
+
+  const result = await restoreUser(user.id)
   if ('failure' in result) {
     list.failure.value = result.failure
     return
@@ -126,9 +197,9 @@ async function onBulkDisable(users: UserSummary[]): Promise<void> {
         <p class="text-muted-foreground text-sm">Everyone who can sign in, and what they hold.</p>
       </div>
 
-      <Button v-if="canInvite" @click="openInvite">
+      <Button v-if="canAdd" @click="openAdd">
         <UserPlus />
-        <span class="hidden sm:inline">Invite</span>
+        <span class="hidden sm:inline">Add user</span>
       </Button>
     </div>
 
@@ -141,6 +212,9 @@ async function onBulkDisable(users: UserSummary[]): Promise<void> {
       @edit="openEdit"
       @resend="onResend"
       @status="onStatus"
+      @reset-password="onResetPassword"
+      @remove="onRemove"
+      @restore="onRestore"
       @bulk-disable="onBulkDisable"
     />
 
@@ -148,6 +222,7 @@ async function onBulkDisable(users: UserSummary[]): Promise<void> {
 
     <InviteTokenDialog
       v-model:open="tokenOpen"
+      :kind="issued?.kind ?? 'invite'"
       :email="issued?.email ?? ''"
       :token="issued?.token ?? null"
       :expires-at="issued?.expiresAt ?? null"

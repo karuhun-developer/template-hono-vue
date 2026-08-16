@@ -139,9 +139,13 @@ Three consequences that each look like an omission:
 
 Which accounts may reset is decided **in SQL**, in `issueReset()` and again in `findPendingReset()`: `status = 'active' AND deleted_at IS NULL`. An invited account's way in is its invitation, and a disabled one must not be able to reset its way back in — otherwise "switch this person off" is undone by a form anybody can post to.
 
+The console's half is `ForgotPasswordPage.vue`, reached from a link beside the password field on the sign-in page. It shows **one sentence whatever happened** — _"If … belongs to an account, a link to set a new password is on its way"_ — because a page that says "no such account" undoes the endpoint's whole point. The only failure it can report is one that stopped the request being answered at all: a malformed address, or a network that dropped it.
+
 ### Using the link
 
 `consumeReset()` carries the token hash in its `WHERE`, exactly as `acceptInvite()` does, so a double-clicked button cannot apply twice: the second request matches zero rows and is answered like an expired link rather than overwriting the password the first one just set.
+
+`ResetPasswordPage.vue` at `/reset-password/:token` mirrors `AcceptInvitePage.vue`: it previews first, so a link that has been used, superseded or expired says so _before_ somebody invents a password rather than after, and it lands them signed in.
 
 Then **every session is revoked**, before the new one is created. "I forgot my password" and "I think somebody else has my password" arrive through the same door, and only one of them is safe to leave signed in elsewhere. Ordering it after would sign the person out of the session the reset had just handed them.
 

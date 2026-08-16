@@ -15,19 +15,21 @@ import { computed, ref, watch } from 'vue'
 import { formatDateTime } from '@/lib/format'
 
 /**
- * The invitation link, shown **once**.
+ * A one-time link, shown **once**.
  *
- * The server keeps only its hash, so this dialog is the single opportunity to copy it.
- * Which is why it cannot be dismissed with Escape or by clicking outside: closing it has to
- * be deliberate, or somebody loses the link to a reflex.
+ * Two kinds go through here — an invitation and a password reset — because they are the
+ * same object: a token the server keeps only the hash of, so this dialog is the single
+ * opportunity to copy it. Which is also why it cannot be dismissed with Escape or by
+ * clicking outside: closing it has to be deliberate, or somebody loses the link to a reflex.
  *
- * Until the template grows an email sender, delivery is manual — chat, phone, in person.
- * Sending it by email is one of the first things a real project adds; the place to do it is
- * `inviteUser()` in `apps/api/src/modules/users/users.service.ts`.
+ * `token === null` means the API decided not to hand the link back, because it has been
+ * emailed instead. There is then nothing to copy and nothing to lose, so the dialog is only
+ * a confirmation of where it went.
  */
 
 const props = defineProps<{
   open: boolean
+  kind: 'invite' | 'reset'
   token: string | null
   email: string
   expiresAt: string | null
@@ -37,13 +39,32 @@ const emit = defineEmits<{ 'update:open': [boolean] }>()
 
 const copied = ref(false)
 
-const link = computed(() =>
-  props.token ? `${window.location.origin}/invitation/${props.token}` : '',
-)
+/**
+ * Built from the console's own origin, which is correct here and only here: this dialog
+ * runs in the browser of the person who pressed the button. Anything sent by email is
+ * addressed from `CONSOLE_URL` on the server, where there is no `window`.
+ */
+const link = computed(() => {
+  if (props.token === null) return ''
+  const path = props.kind === 'invite' ? 'invitation' : 'reset-password'
+  return `${window.location.origin}/${path}/${props.token}`
+})
 
 const expiry = computed(() =>
   props.expiresAt === null ? null : formatDateTime(props.expiresAt, ''),
 )
+
+const title = computed(() =>
+  props.kind === 'invite' ? `Invitation for ${props.email}` : `Password reset for ${props.email}`,
+)
+
+const description = computed(() => {
+  if (props.token === null) return `We have emailed the link to ${props.email}.`
+
+  return props.kind === 'invite'
+    ? 'Send this link to them. It is shown only once — after this dialog closes, getting a new link means re-sending the invitation.'
+    : 'Send this link to them. It is shown only once, and it signs them in as soon as they choose a new password.'
+})
 
 watch(
   () => props.open,
@@ -73,14 +94,11 @@ async function copy(): Promise<void> {
       @interact-outside.prevent
     >
       <DialogHeader>
-        <DialogTitle>Invitation for {{ email }}</DialogTitle>
-        <DialogDescription>
-          Send this link to them. It is shown only once — after this dialog closes, getting a new
-          link means re-sending the invitation.
-        </DialogDescription>
+        <DialogTitle>{{ title }}</DialogTitle>
+        <DialogDescription>{{ description }}</DialogDescription>
       </DialogHeader>
 
-      <div class="space-y-3">
+      <div v-if="token !== null" class="space-y-3">
         <div class="flex gap-2">
           <Input :model-value="link" readonly spellcheck="false" class="font-mono text-xs" />
           <Button type="button" variant="secondary" @click="copy">
@@ -94,7 +112,9 @@ async function copy(): Promise<void> {
       </div>
 
       <DialogFooter>
-        <Button type="button" @click="emit('update:open', false)">I have copied it</Button>
+        <Button type="button" @click="emit('update:open', false)">
+          {{ token === null ? 'Done' : 'I have copied it' }}
+        </Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

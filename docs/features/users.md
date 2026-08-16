@@ -8,7 +8,7 @@ Inviting people, creating them outright, editing them and their roles, switching
 | Rules     | `apps/api/src/modules/users/users.service.ts` |
 | Queries   | `apps/api/src/modules/users/users.repo.ts`    |
 | Table     | `apps/api/src/db/schema/identity.ts`          |
-| Console   | `apps/console/src/pages/UsersPage.vue`        |
+| Console   | `apps/console/src/features/users/`            |
 
 ## Endpoints
 
@@ -108,16 +108,27 @@ There is no revocation sweep, and there is nothing to remember. `findLiveSession
 
 One condition in SQL, holding for every code path, beats a revocation pass that some future endpoint forgets to call — which is also why deleting does not add one. A second mechanism doing the same job is how the first stops being trusted.
 
-## Invitation tokens
+## One-time links
 
-`POST /users` and `POST /users/:id/invite` return `inviteToken` **in that response only**. What is stored is its SHA-256 hash, under a partial unique index, so a user has at most one outstanding invitation.
+`POST /users` and `POST /users/:id/invite` return `inviteToken`, and `POST /users/:id/reset-password` returns `resetToken`, **in that response only**. What is stored is the SHA-256 hash of each, under a partial unique index, so a user has at most one outstanding invitation and at most one live reset.
 
-The console renders `<origin>/invitation/<token>` in `InviteTokenDialog.vue`, which:
+Both are rendered by `InviteTokenDialog.vue`, which takes a `kind` prop and builds `<origin>/invitation/<token>` or `<origin>/reset-password/<token>`. It:
 
 - blocks Escape and outside-click, because closing it loses a value that cannot be fetched again;
 - falls back to a selectable text box when the clipboard is refused — over plain HTTP on a non-localhost origin it always will be.
 
-> **When you wire up email**, send the link from the service where the token is issued and stop returning `inviteToken` in the response body. Everything else stays as it is.
+`window.location.origin` is correct **here and only here**: this dialog runs in the browser of whoever pressed the button. A link that leaves by email is addressed on the server, where there is no `window`.
+
+> **When you wire up email**, send the link from the service where the token is issued and stop returning `inviteToken` and `resetToken` in the response body. Everything else stays as it is.
+
+## The console side
+
+`UsersPage.vue` is wiring; everything that knows about users lives in `features/users/`. Two pieces are worth knowing about:
+
+- **One dialog, three modes.** `UserFormDialog` invites, creates and edits. Which mode it opens in is `dialogMode(user, can)` — a pure function in `features/users/api.ts` with a test beside it, because that branch decides which of three endpoints a submit reaches. Somebody holding both `user.invite` and `user.create` gets a switch; somebody holding one never sees it. **None of this refuses anything**; the three `requirePermission()` calls and the 403 tests do.
+- **Deleted is a facet, not a checkbox.** Ticking it sends `includeDeleted=true`. It is declared as a filter on `useResourceList` so that turning it on resets the page and clears with Reset, exactly like narrowing by status does. A deleted row renders struck through with a Deleted badge, and its only action is Restore — editing somebody who has been removed, or starting a reset they can never finish, are clicks with nothing behind them.
+
+The public half is two pages, `ForgotPasswordPage.vue` at `/forgot-password` and `ResetPasswordPage.vue` at `/reset-password/:token`. Both are `meta.public`, for the reason the invitation page is: whoever opens them cannot sign in.
 
 ## The list
 

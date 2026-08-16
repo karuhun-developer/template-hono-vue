@@ -2,7 +2,7 @@
 import { Button, Input, Label } from '@app/ui'
 import { LoaderCircle } from '@lucide/vue'
 import { onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import { safeRedirect } from '@/lib/access'
@@ -65,7 +65,15 @@ async function submit(): Promise<void> {
       </div>
 
       <div class="space-y-2">
-        <Label for="password">Password</Label>
+        <div class="flex items-center justify-between gap-2">
+          <Label for="password">Password</Label>
+          <RouterLink
+            to="/forgot-password"
+            class="text-muted-foreground hover:text-foreground text-xs"
+          >
+            Forgot your password?
+          </RouterLink>
+        </div>
         <Input
           id="password"
           v-model="password"

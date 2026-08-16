@@ -1,3 +1,4 @@
+import type { PermissionKey } from '@app/contract'
 import type { InferResponseType } from 'hono/client'
 
 import { listResult, type ResourceQuery, type ResourceResult } from '@/composables/useResourceList'
@@ -26,6 +27,8 @@ export const USER_SORTABLE = ['name', 'email', 'status', 'lastLoginAt', 'created
 export type UserFilters = {
   statuses: string[]
   roleIds: string[]
+  /** Soft-deleted accounts are hidden unless this is asked for. */
+  includeDeleted: boolean
 }
 
 export type UserSortKey = (typeof USER_SORTABLE)[number]
@@ -42,6 +45,9 @@ export function fetchUsers(
           // Sent once per ticked box; the API reads a repeated parameter as a set.
           ...(filters.statuses.length === 0 ? {} : { status: filters.statuses as UserStatus[] }),
           ...(filters.roleIds.length === 0 ? {} : { roleId: filters.roleIds }),
+          // Spelled out as a string, because the API reads an enum of two words rather than
+          // a coerced boolean — `"false"` would otherwise arrive meaning `true`.
+          includeDeleted: filters.includeDeleted ? 'true' : 'false',
           page: String(query.page),
           perPage: String(query.perPage),
           sort: query.sort,
@@ -54,10 +60,12 @@ export function fetchUsers(
 }
 
 /**
- * What either write hands back.
+ * What any of the three writes hands back.
  *
  * `inviteToken` exists only on the invite path, and only for as long as the response
  * carries it — the server keeps a hash, so this is the single moment it can be read.
+ * Creating an account outright carries none, because there is no link: the password was
+ * chosen by whoever filled the form in.
  */
 export type UserSaved = {
   user: UserSummary
@@ -71,6 +79,20 @@ export function inviteUser(input: {
   roleIds: string[]
 }): Promise<ActionResult<InferResponseType<typeof api.users.$post>>> {
   return readAction(() => api.users.$post({ json: input }))
+}
+
+/**
+ * Its own call against its own route, because it is behind its own permission. Choosing
+ * somebody else's password is a different act from mailing them a link, and the API keeps
+ * the two apart rather than reading a mode out of one body.
+ */
+export function createUser(input: {
+  email: string
+  name: string
+  password: string
+  roleIds: string[]
+}): Promise<ActionResult<InferResponseType<typeof api.users.create.$post>>> {
+  return readAction(() => api.users.create.$post({ json: input }))
 }
 
 export function updateUser(
@@ -92,4 +114,77 @@ export function setUserStatus(
   status: 'active' | 'disabled',
 ): Promise<ActionResult<InferResponseType<(typeof api.users)[':id']['status']['$post']>>> {
   return readAction(() => api.users[':id'].status.$post({ param: { id }, json: { status } }))
+}
+
+export function deleteUser(
+  id: string,
+): Promise<ActionResult<InferResponseType<(typeof api.users)[':id']['$delete']>>> {
+  return readAction(() => api.users[':id'].$delete({ param: { id } }))
+}
+
+export function restoreUser(
+  id: string,
+): Promise<ActionResult<InferResponseType<(typeof api.users)[':id']['restore']['$post']>>> {
+  return readAction(() => api.users[':id'].restore.$post({ param: { id } }))
+}
+
+/**
+ * Starts a reset on somebody else's account and hands back the link — once, the way an
+ * invitation does, because the server keeps only its hash.
+ */
+export function resetUserPassword(
+  id: string,
+): Promise<ActionResult<InferResponseType<(typeof api.users)[':id']['reset-password']['$post']>>> {
+  return readAction(() => api.users[':id']['reset-password'].$post({ param: { id } }))
+}
+
+/* ------------------------------------------------------------------------ dialog modes */
+
+/**
+ * Which of the three things the user dialog is doing.
+ *
+ * Pure, and here rather than inside the component, because it is the one piece of that
+ * dialog worth a test: the branch decides which endpoint a submit reaches, and getting it
+ * wrong sends an invitation to somebody who was meant to be created with a password.
+ *
+ * It is **not** a permission check. Nothing here refuses anything — `requirePermission()`
+ * on each route does, and the 403 test beside it is what proves so. This only decides what
+ * is worth offering.
+ */
+export type UserDialogMode = 'invite' | 'create' | 'edit'
+
+const MODE_PERMISSION = {
+  invite: 'user.invite',
+  create: 'user.create',
+  edit: 'user.update',
+} as const satisfies Record<UserDialogMode, PermissionKey>
+
+/**
+ * The modes the caller may pick between, in the order they should be offered.
+ *
+ * An existing user is only ever edited. A new one can be invited, created outright, or —
+ * for whoever holds both keys — either, which is what the dialog's switch is for.
+ */
+export function offeredModes(
+  user: UserSummary | null,
+  can: (permission: PermissionKey) => boolean,
+): UserDialogMode[] {
+  if (user !== null) return ['edit']
+  return (['invite', 'create'] as const).filter((mode) => can(MODE_PERMISSION[mode]))
+}
+
+/**
+ * Where the dialog opens.
+ *
+ * Invite wins when both are held: the account nobody else has ever known the password of
+ * is the better default, and creating one outright is the deliberate choice.
+ *
+ * The fallback matters less than it looks — a caller holding neither key never sees the
+ * button that opens this — but "invite" is the harmless half of the pair to land on.
+ */
+export function dialogMode(
+  user: UserSummary | null,
+  can: (permission: PermissionKey) => boolean,
+): UserDialogMode {
+  return offeredModes(user, can)[0] ?? 'invite'
 }
