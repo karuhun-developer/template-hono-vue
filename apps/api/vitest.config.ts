@@ -30,6 +30,15 @@ const TEST_ENV = {
   // Every rendered link is built from this, so an assertion about a link is only stable
   // if the origin is. It matches CORS_ORIGINS above, which the cross-field rule requires.
   CONSOLE_URL: 'http://localhost:7301',
+  // Nothing in a suite starts a worker, but `src/index.ts` would, and a scheduler ticking a
+  // real database underneath a suite is a source of rows nobody wrote. The scheduler suite
+  // constructs its own and calls `tick()` with a fixed instant, which is the only way to
+  // assert what a schedule did rather than wait to see whether it did it.
+  SCHEDULER_ENABLED: 'false',
+  WORKER_IN_PROCESS: 'false',
+  // Pinned rather than left to default, because every `firedFor` in an assertion is computed
+  // from an expression in this zone, and a developer with TZ set would get different rows.
+  SCHEDULER_TIMEZONE: 'UTC',
 } as const
 
 Object.assign(process.env, TEST_ENV)

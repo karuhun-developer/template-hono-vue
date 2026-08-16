@@ -43,6 +43,13 @@
       "when": 1786863128191,
       "tag": "0005_add_mail_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786877407101,
+      "tag": "0006_add_schedule_runs",
+      "breakpoints": true
     }
   ]
 }

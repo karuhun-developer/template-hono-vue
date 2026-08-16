@@ -6,6 +6,7 @@ import { env } from '#env'
 import { logger } from '#lib/logger'
 import { installSignalHandlers, onShutdown } from '#lib/shutdown'
 import { startWorker, stopWorker } from '#queue/worker'
+import { startScheduler } from '#scheduler/scheduler'
 
 /**
  * The worker process: claims jobs, runs them, and answers no HTTP.
@@ -41,6 +42,18 @@ if (startWorker()) {
     { driver: env.QUEUE_DRIVER },
     'the worker has nothing to do with this driver and will idle',
   )
+}
+
+/**
+ * The scheduler lives here and in `src/index.ts` under `WORKER_IN_PROCESS` — never in
+ * `app.ts`. An API replica that ticked would be a second scheduler contending for the same
+ * rows every thirty seconds, which the unique index survives and nobody benefits from.
+ *
+ * Started after the worker, so a schedule that fires in the first tick has somebody to claim
+ * it. Its own shutdown task was registered by the module, beside the singleton it stops.
+ */
+if (!startScheduler()) {
+  logger.info({ enabled: env.SCHEDULER_ENABLED }, 'the scheduler is not running in this process')
 }
 
 installSignalHandlers()

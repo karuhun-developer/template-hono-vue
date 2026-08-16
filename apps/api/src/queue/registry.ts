@@ -1,7 +1,7 @@
 import type { Logger } from 'pino'
 import { z } from 'zod'
 
-import { purgeInvitesJob, purgeResetsJob, pruneSessionsJob } from '#queue/jobs/cleanup'
+import { purgeInvitesJob, purgeResetsJob, pruneSessionsJob, reapJobsJob } from '#queue/jobs/cleanup'
 import { pruneMailJob, sendMailJob, sweepStuckMailJob } from '#queue/jobs/mail'
 
 /**
@@ -74,6 +74,13 @@ export const JOBS = {
   'mail.send': { payload: z.object({ messageId: z.uuid() }), handler: sendMailJob },
   'mail.sweep-stuck': { payload: NO_PAYLOAD, handler: sweepStuckMailJob },
   'mail.prune': { payload: NO_PAYLOAD, handler: pruneMailJob },
+
+  /**
+   * One attempt, deliberately. It runs every five minutes anyway, so a retry would only
+   * repeat work the next tick was going to do — and a reaper that piles up retries while
+   * the database is unwell is the last thing that database needs.
+   */
+  'queue.reap': { payload: NO_PAYLOAD, handler: reapJobsJob, maxAttempts: 1 },
 } as const satisfies JobCatalog
 
 export type JobName = keyof typeof JOBS

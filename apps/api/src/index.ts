@@ -8,6 +8,7 @@ import { env, isProduction, workerInProcess } from '#env'
 import { logger } from '#lib/logger'
 import { installSignalHandlers, onShutdown } from '#lib/shutdown'
 import { startWorker, stopWorker } from '#queue/worker'
+import { startScheduler } from '#scheduler/scheduler'
 
 /**
  * A warning rather than a refusal. Some installations genuinely want no outbound mail — an
@@ -42,6 +43,13 @@ const server = serve({ fetch: app.fetch, hostname: env.API_HOST, port: env.API_P
 if (workerInProcess) {
   onShutdown('worker', stopWorker)
   if (startWorker()) logger.info({ driver: env.QUEUE_DRIVER }, 'queue worker running in-process')
+
+  // Inside this `if` and nowhere else. The scheduler belongs to the worker, so wherever the
+  // worker is, it is — and an API that is not carrying one must not tick, or scaling out for
+  // traffic would scale out the scheduler with it.
+  if (startScheduler()) {
+    logger.info({ timezone: env.SCHEDULER_TIMEZONE }, 'scheduler running in-process')
+  }
 }
 
 /**

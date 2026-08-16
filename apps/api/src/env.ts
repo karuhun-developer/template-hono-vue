@@ -20,6 +20,23 @@ function loadDotEnv(): void {
 loadDotEnv()
 
 /**
+ * Whether this runtime can do arithmetic in the named zone.
+ *
+ * `Intl.DateTimeFormat` is the only honest test: `Intl.supportedValuesOf('timeZone')` lists
+ * what the ICU build shipped with, which on a small Node image is a smaller set than what it
+ * will actually accept, and rejecting a zone that works is a worse failure than the one this
+ * is guarding against.
+ */
+function isKnownTimezone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * A comma-separated list of browser origins allowed to call this API with credentials.
  *
  * This is the one setting that makes adding a frontend a `.env` edit instead of an API
@@ -158,6 +175,51 @@ const envSchema = z
       .enum(['true', 'false'])
       .optional()
       .transform((value) => (value === undefined ? undefined : value === 'true')),
+
+    /**
+     * Whether the worker ticks the schedules.
+     *
+     * On by default, because a template whose cleanups are configured and not running is a
+     * template that teaches nothing. It is a switch rather than a thing you comment out
+     * because the reason to turn it off is temporary — a staging replica sharing a
+     * production database, an afternoon spent watching one job by hand.
+     *
+     * `false` in the test suite: a scheduler ticking a real Postgres underneath a suite is a
+     * source of rows nobody wrote.
+     */
+    SCHEDULER_ENABLED: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((value) => value === 'true'),
+
+    /**
+     * The timezone every cron expression is read in.
+     *
+     * `UTC` by default, and this is the setting to think about before changing: `15 3 * * *`
+     * in a zone with daylight saving happens twice on one morning a year and not at all on
+     * another. UTC has neither problem, and a cleanup does not care what time it is locally.
+     *
+     * Validated here rather than at the first tick, because croner checks a zone lazily —
+     * an unknown one would otherwise surface at 03:15, inside a worker, as a caught error.
+     */
+    SCHEDULER_TIMEZONE: z
+      .string()
+      .min(1)
+      .default('UTC')
+      .refine(isKnownTimezone, 'is not an IANA timezone this runtime knows — for example UTC'),
+
+    /** How often the schedules are compared against the clock. Not how often anything runs. */
+    SCHEDULER_TICK_MS: z.coerce.number().int().min(1000).max(300_000).default(30_000),
+
+    /**
+     * How far back a tick will look for an occurrence it has not fired yet.
+     *
+     * This is the answer to "the worker was down for a week". With an hour's window it fires
+     * last night's cleanup once and lets the six before it stay missed, rather than firing
+     * seven at a database that is already behind. Widen it if a missed run genuinely has to
+     * be caught up; the cost of widening is how much of a backlog one restart can release.
+     */
+    SCHEDULER_CATCHUP_MINUTES: z.coerce.number().int().min(1).max(1440).default(60),
 
     /**
      * How email leaves this process.
