@@ -16,6 +16,10 @@ const TEST_ENV = {
   CORS_ORIGINS: 'http://localhost:7301',
   LOG_LEVEL: 'silent',
   LOG_PRETTY: 'false',
+  // Handlers run inline and **rethrow**, so a suite asserting an endpoint's effect fails
+  // when the job behind it throws. The database driver is constructed directly by the
+  // driver suite, which is the only place a poll loop belongs in a test.
+  QUEUE_DRIVER: 'sync',
 } as const
 
 Object.assign(process.env, TEST_ENV)

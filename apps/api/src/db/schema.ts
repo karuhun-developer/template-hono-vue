@@ -11,3 +11,4 @@
 export * from './schema/identity'
 export * from './schema/rbac'
 export * from './schema/audit'
+export * from './schema/jobs'

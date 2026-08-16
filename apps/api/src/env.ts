@@ -106,6 +106,27 @@ const envSchema = z
     PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(60),
 
     /**
+     * How background work is carried.
+     *
+     * `database` is the default because it is the only driver whose enqueue can join the
+     * transaction that caused it — see `docs/features/queue.md`. `sync` runs the handler
+     * inline and is what the test suite uses, so a suite asserts the effect of a job
+     * rather than the existence of a row.
+     */
+    QUEUE_DRIVER: z.enum(['sync', 'database']).default('database'),
+    /** How long the poller waits when it found nothing. It does not wait at all when it did. */
+    QUEUE_POLL_MS: z.coerce.number().int().min(50).max(60_000).default(1000),
+    /** How many jobs one worker claims at a time. Also the size of one batch. */
+    QUEUE_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(5),
+    /** The default for a job whose definition does not set its own. */
+    QUEUE_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(3),
+    /**
+     * How long a job may sit `running` before it is assumed the worker holding it is dead.
+     * A live worker finishes or fails in seconds; anything past this is a crash.
+     */
+    QUEUE_STALE_AFTER_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+
+    /**
      * The first account `make seed` creates. Read here rather than hard-coded in the
      * seeder so that a fresh clone can be given a real address without editing source —
      * and so the password of the very first account never has to be committed.
