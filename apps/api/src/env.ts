@@ -254,6 +254,32 @@ const envSchema = z
     CACHE_MAX_ENTRIES: z.coerce.number().int().min(1).max(1_000_000).default(10_000),
 
     /**
+     * Whether a user's permission set is cached between requests.
+     *
+     * **Off**, and the default is the honest one. `loadAccess()` runs on every authenticated
+     * request, so caching it is the single largest saving available here — and it is also the
+     * one place where a stale value means somebody keeps an access they have had taken away.
+     * The invalidation matrix in `docs/features/cache.md` is exhaustive for changes made
+     * *through this API*, and cannot be for changes made outside it: a re-seed, a
+     * `topUpWildcardRoles`, an UPDATE run by hand. Turning it on is trading that window for
+     * a query, which is a decision an installation makes with its own numbers.
+     */
+    CACHE_ACCESS_PERMISSIONS: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
+
+    /**
+     * How long a cached permission set lives.
+     *
+     * Capped at five minutes deliberately. Every invalidation this codebase performs is
+     * best-effort — a deferred task that logs and swallows — so the TTL is the backstop that
+     * makes a missed one temporary rather than permanent. An unbounded TTL on a permission
+     * set is a revocation that never happens.
+     */
+    CACHE_ACCESS_TTL_SECONDS: z.coerce.number().int().min(1).max(300).default(30),
+
+    /**
      * How email leaves this process.
      *
      * `log` is the default, and it is a real driver rather than a stub: it writes the

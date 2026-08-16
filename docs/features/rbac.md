@@ -88,6 +88,16 @@ export const userRoutes = new Hono<AppBindings>()
 
 `AccessContext` is a flat `ReadonlySet<PermissionKey>`, because in a single-tenant application there is exactly one scope. It is also the type that has to grow a second dimension if you ever add tenants — see [`../guides/add-multi-tenancy.md`](../guides/add-multi-tenancy.md).
 
+## Caching the lookup — off by default
+
+`loadAccess()` is one query on every authenticated request, which makes it the largest saving available and the most dangerous thing to cache. `CACHE_ACCESS_PERMISSIONS=true` puts `remember('access:<id>', …)` in front of it; unset, nothing is cached and the property this template advertises stays literally true — **take a role away and the very next request has already lost it.**
+
+Turned on, "the very next request" is still true for every change made through this API, because each one drops the entry after the commit. The full matrix, and the argument for the 300-second ceiling on the TTL, is in [`cache.md`](cache.md#the-permission-cache); the short version is that `forgetAccess(userId)` runs on every user write and `forgetAccessForRole(roleId)` fans out over `user_roles` when a role's permissions are replaced, both through `defer`.
+
+What it cannot cover is a change made **outside** the API: a re-seed, `topUpWildcardRoles()`, an `UPDATE` run by hand. Those wait for the TTL. That is the whole reason the flag defaults to off — and, with `CACHE_DRIVER=memory` and more than one replica, an invalidation only reaches the process that performed it, which the API warns about at boot.
+
+Two properties survive the cache and are worth knowing: what is stored is the **raw** key list, re-filtered through `isPermissionKey()` on the way out, so a key removed from the catalog after the entry was written still grants nothing; and a disabled or deleted account is turned away by the `status = 'active' AND deleted_at IS NULL` join in `findLiveSession()`, one layer earlier, with no cache in the way.
+
 ## The grantable rule
 
 The interesting part. It runs in **two directions**, both in `apps/api/src/modules/roles/roles.service.ts`:

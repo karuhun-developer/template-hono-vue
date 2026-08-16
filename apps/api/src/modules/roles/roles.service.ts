@@ -3,9 +3,10 @@ import { eq } from 'drizzle-orm'
 
 import { db } from '#db/client'
 import { roles } from '#db/schema'
+import { transaction } from '#db/tx'
 import { badRequest, conflict, forbidden, notFound } from '#lib/errors'
 import { diffFields, recordAudit, type AuditActor } from '#modules/audit/audit.repo'
-import { allPermissions, type AccessContext } from '#modules/rbac/rbac.repo'
+import { allPermissions, forgetAccessForRole, type AccessContext } from '#modules/rbac/rbac.repo'
 import {
   findRole,
   insertRole,
@@ -116,7 +117,7 @@ export async function updateRole(
     }
   }
 
-  return db.transaction(async (tx) => {
+  return transaction(async (tx, defer) => {
     const profile: { name?: string; description?: string | null } = {}
     if (body.name !== undefined) profile.name = body.name
     if (body.description !== undefined) profile.description = body.description
@@ -153,6 +154,13 @@ export async function updateRole(
       })
     }
 
+    // Editing a role edits everybody who holds it, which is the one invalidation a
+    // per-user key cannot express on its own — hence the fan-out. Only when the permissions
+    // were actually replaced: renaming a role changes nothing about what anyone may do.
+    if (body.permissions) {
+      defer('forget-access-for-role', () => forgetAccessForRole(roleId))
+    }
+
     return saved
   })
 }
@@ -176,7 +184,7 @@ export async function deleteRole(actor: AuditActor, roleId: string): Promise<voi
     )
   }
 
-  await db.transaction(async (tx) => {
+  await transaction(async (tx, defer) => {
     await tx.delete(roles).where(eq(roles.id, roleId))
 
     await recordAudit(tx, actor, {
@@ -186,6 +194,11 @@ export async function deleteRole(actor: AuditActor, roleId: string): Promise<voi
       subjectLabel: role.name,
       before: { key: role.key, permissions: role.permissions },
     })
+
+    // The `usedBy` guard above means this fan-out is over an empty set, and it is still
+    // here: the day somebody relaxes that guard — or adds a cascade — this line is what
+    // stops the relaxation from becoming a permission nobody can revoke.
+    defer('forget-access-for-role', () => forgetAccessForRole(roleId))
   })
 }
 

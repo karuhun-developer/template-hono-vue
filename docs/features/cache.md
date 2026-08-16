@@ -74,17 +74,45 @@ It is a no-op under `memory` (which expires lazily in the process) and under `re
 
 `memory` has one extra rule, `CACHE_MAX_ENTRIES`: past the cap it evicts the entry written longest ago. A `Map` with no ceiling is a memory leak wearing a cache's clothes — slow, invisible, and fatal on the one process that happens to see unusual traffic.
 
+## The permission cache
+
+The one thing in this template that is cached, and it is **off**.
+
+`loadAccess()` runs on every authenticated request. `CACHE_ACCESS_PERMISSIONS=true` puts `remember('access:<id>', …)` in front of it, for `CACHE_ACCESS_TTL_SECONDS` (default 30, capped at 300). Off, nothing is cached and [rbac.md](rbac.md) can keep saying that a permission taken away is gone on the next request.
+
+On, that sentence stays true for every change this API makes, because each one drops the entry — **after the commit, through `defer`**:
+
+| What changed                                  | Where                             | Call                               |
+| --------------------------------------------- | --------------------------------- | ---------------------------------- |
+| Roles replaced (invite, create, update)       | `users.service.ts`                | `forgetAccess(userId)`             |
+| Deleted, restored, disabled, enabled          | `users.service.ts`                | `forgetAccess(userId)`             |
+| A role's permissions replaced                 | `roles.service.ts` → `updateRole` | `forgetAccessForRole(roleId)`      |
+| A role deleted                                | `roles.service.ts` → `deleteRole` | `forgetAccessForRole(roleId)`      |
+| A re-seed, `topUpWildcardRoles`, a manual SQL | outside the process               | **nothing — it waits for the TTL** |
+
+Half of those rows drop nothing today: a user id that was invented three lines earlier cannot have an entry, a status change is not part of a permission set, and a role cannot be deleted while anybody holds it. They are there anyway, because a matrix with exceptions is a matrix nobody trusts, and "empty by construction" is a property one future commit can quietly change.
+
+`forgetAccessForRole` is the explicit fan-out the no-tags decision points at: `user_roles` already answers "who holds this role", so the alternative would be a second index maintained inside all three drivers to answer a question one join answers here.
+
+The last row is the reason for the ceiling on the TTL. Every invalidation here is best-effort — a deferred task that logs and swallows — so the TTL is the backstop that makes a missed one temporary. And with `CACHE_DRIVER=memory` an invalidation only reaches the process that performed it, so a second replica keeps honouring a revoked permission until the entry expires; the API warns about exactly that combination at boot. It cannot be a boot **error**, because the environment does not know how many replicas there are.
+
+What is stored is the **raw** key list as the database holds it. The filtering through `isPermissionKey()` happens on the way out, on the cached path as well as the fresh one, so a key that was in the catalog when the entry was written and has since been renamed away still grants nothing.
+
 ## Settings
 
-| Variable            | Default  | Means                                                   |
-| ------------------- | -------- | ------------------------------------------------------- |
-| `CACHE_DRIVER`      | `memory` | `memory` · `database` · `redis`                         |
-| `CACHE_PREFIX`      | `app:`   | In front of every key this installation writes          |
-| `CACHE_MAX_ENTRIES` | `10000`  | The ceiling on the memory driver; ignored by the others |
+| Variable                   | Default  | Means                                                   |
+| -------------------------- | -------- | ------------------------------------------------------- |
+| `CACHE_DRIVER`             | `memory` | `memory` · `database` · `redis`                         |
+| `CACHE_PREFIX`             | `app:`   | In front of every key this installation writes          |
+| `CACHE_MAX_ENTRIES`        | `10000`  | The ceiling on the memory driver; ignored by the others |
+| `CACHE_ACCESS_PERMISSIONS` | `false`  | Whether permission lookups are cached at all            |
+| `CACHE_ACCESS_TTL_SECONDS` | `30`     | How long one is kept, at most 300                       |
 
 `REDIS_URL` is required when `CACHE_DRIVER=redis`, and the API refuses to boot without it — the same cross-field rule the queue has, and for the same reason: the alternative is a failure at the first cache read, which is a request, in production, at the worst moment.
 
 ## Testing
+
+`access-cache.test.ts` is the suite for the section above, and it is the only file in the repository that runs with `CACHE_ACCESS_PERMISSIONS=true` — set through `vi.hoisted`, which runs before the imports, because `env` is frozen at boot and Vitest gives each file its own module registry. It asserts what a unit test cannot: that after `PATCH /users/:id`, the subject's **very next** request through `app.request()` has already lost the permission. Its first case grants a permission straight through `role_permissions` and expects the cached answer not to change, which is what proves the flag actually took — without it, every other assertion in the file would pass against an uncached lookup.
 
 `cache.test.ts` runs **one** set of assertions against both the memory and the database driver, through `describe.each`. That is the only way the promise of this subsystem — that swapping the driver changes where an entry lives and nothing else — stays true, because "works on memory" is exactly the shape the first bug takes.
 

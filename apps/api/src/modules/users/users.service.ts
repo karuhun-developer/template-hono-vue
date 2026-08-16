@@ -9,7 +9,7 @@ import { hashPassword } from '#lib/password'
 import { issueToken } from '#lib/token'
 import { queueMail, revealTokens } from '#mail/outbox'
 import { diffFields, recordAudit, type AuditActor } from '#modules/audit/audit.repo'
-import { loadAccess, type AccessContext } from '#modules/rbac/rbac.repo'
+import { forgetAccess, loadAccess, type AccessContext } from '#modules/rbac/rbac.repo'
 import { loadRolePermissions } from '#modules/roles/roles.repo'
 import { assertGrantable } from '#modules/roles/roles.service'
 import {
@@ -147,7 +147,7 @@ export async function createUser(
    */
   const passwordHash = await hashPassword(body.password)
 
-  return db.transaction(async (tx) => {
+  return transaction(async (tx, defer) => {
     const [created] = await tx
       .insert(users)
       .values({
@@ -174,6 +174,13 @@ export async function createUser(
       // to keep that guarantee true is to never hand it any in the first place.
       after: { email: saved.email, name: saved.name, roles: describe(saved) },
     })
+
+    // A brand-new id cannot have a cached permission set, so this drops nothing today. It is
+    // here so that **every** write path in this file ends the same way: the matrix in
+    // `docs/features/cache.md` is only trustworthy if it does not have exceptions a reader
+    // has to hold in their head, and "empty by construction" is a property one future commit
+    // can quietly change.
+    defer('forget-access', () => forgetAccess(saved.id))
 
     return saved
   })
@@ -216,6 +223,10 @@ export async function inviteUser(
       subjectLabel: saved.email,
       after: { email: saved.email, name: saved.name, roles: describe(saved) },
     })
+
+    // Same reasoning as `createUser`: nothing can be cached under an id this transaction
+    // has just invented, and the list of write paths is worth more than the line it costs.
+    defer('forget-access', () => forgetAccess(saved.id))
 
     // Inside the transaction, so an invitation that rolls back — a duplicate address, a
     // role that turned out not to exist — takes its email down with it. Nobody is invited
@@ -296,7 +307,7 @@ export async function updateUser(
 
   if (body.roleIds) await assertRolesGrantable(access, body.roleIds)
 
-  return db.transaction(async (tx) => {
+  return transaction(async (tx, defer) => {
     if (body.name !== undefined) {
       await tx
         .update(users)
@@ -324,6 +335,11 @@ export async function updateUser(
         after: changes.after,
       })
     }
+
+    // The entry that actually matters. This is the route the console's role editor uses, so
+    // it is the one that decides whether "I took that permission away" is true on the very
+    // next request or true in thirty seconds.
+    defer('forget-access', () => forgetAccess(userId))
 
     return saved
   })
@@ -355,7 +371,7 @@ export async function setUserStatus(
     throw badRequest('This invitation has not been accepted yet — re-send it instead.')
   }
 
-  return db.transaction(async (tx) => {
+  return transaction(async (tx, defer) => {
     await tx
       .update(users)
       .set({ status, updatedAt: new Date() })
@@ -369,6 +385,11 @@ export async function setUserStatus(
       before: { status: target.status },
       after: { status },
     })
+
+    // Status is not part of a permission set — a disabled account is turned away one layer
+    // earlier, by the `status = 'active'` join in `findLiveSession`. Dropped anyway, for the
+    // reason `createUser` gives: a matrix with exceptions is a matrix nobody trusts.
+    defer('forget-access', () => forgetAccess(userId))
 
     const saved = await findUser(tx, userId)
     if (!saved) throw new Error('the user could not be read back')
@@ -413,7 +434,7 @@ export async function deleteUser(
   // that changes nothing is not a failure.
   if (target.deletedAt) return target
 
-  return db.transaction(async (tx) => {
+  return transaction(async (tx, defer) => {
     await tx
       .update(users)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -427,6 +448,8 @@ export async function deleteUser(
       before: { status: target.status, deletedAt: null },
       after: { status: target.status, deleted: true },
     })
+
+    defer('forget-access', () => forgetAccess(userId))
 
     const saved = await findUser(tx, userId, { includeDeleted: true })
     if (!saved) throw new Error('the user could not be read back')
@@ -453,7 +476,7 @@ export async function restoreUser(actor: AuditActor, userId: string): Promise<Us
 
   if (!target.deletedAt) return target
 
-  return db.transaction(async (tx) => {
+  return transaction(async (tx, defer) => {
     await tx
       .update(users)
       .set({ deletedAt: null, updatedAt: new Date() })
@@ -467,6 +490,8 @@ export async function restoreUser(actor: AuditActor, userId: string): Promise<Us
       before: { deleted: true },
       after: { deleted: false, status: target.status },
     })
+
+    defer('forget-access', () => forgetAccess(userId))
 
     const saved = await findUser(tx, userId)
     if (!saved) throw new Error('the user could not be read back')

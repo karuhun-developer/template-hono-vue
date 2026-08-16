@@ -23,6 +23,22 @@ if (isProduction && env.MAIL_DRIVER === 'log') {
   )
 }
 
+/**
+ * The other warning that cannot be a `superRefine` error, and for a sharper reason: the
+ * environment does not know how many replicas there are. One process with a memory cache is
+ * correct; two is a permission revoked on one of them and honoured by the other until the
+ * TTL runs out, which is a security property decided by a setting nobody looked at.
+ *
+ * Here rather than in `cache.ts`, because `loadAccess` only runs on a request path — a
+ * worker booting with the same configuration has nothing to warn about.
+ */
+if (env.CACHE_ACCESS_PERMISSIONS && env.CACHE_DRIVER === 'memory') {
+  logger.warn(
+    { ttlSeconds: env.CACHE_ACCESS_TTL_SECONDS },
+    'CACHE_ACCESS_PERMISSIONS is on with CACHE_DRIVER=memory — invalidation reaches this process only, so with more than one replica a revoked permission stays honoured elsewhere until the entry expires.',
+  )
+}
+
 const server = serve({ fetch: app.fetch, hostname: env.API_HOST, port: env.API_PORT }, (info) => {
   logger.info(
     { host: info.address, port: info.port, env: env.NODE_ENV },
