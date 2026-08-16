@@ -5,6 +5,8 @@ Work that must happen, but not while somebody is waiting for a response.
 | Concern             | File                               |
 | ------------------- | ---------------------------------- |
 | Enqueueing          | `apps/api/src/queue/queue.ts`      |
+| Starting the loop   | `apps/api/src/queue/worker.ts`     |
+| The worker process  | `apps/api/src/worker.ts`           |
 | The catalog of jobs | `apps/api/src/queue/registry.ts`   |
 | Handlers            | `apps/api/src/queue/jobs/`         |
 | The `jobs` table    | `apps/api/src/db/schema/jobs.ts`   |
@@ -139,6 +141,45 @@ A row still `running` with a `locked_at` older than `QUEUE_STALE_AFTER_MINUTES` 
 a worker that died — a live one finishes or fails in seconds. `reap()` puts it back to
 `pending`, keeping the attempt it already spent.
 
+## Running the worker
+
+```bash
+make dev      # api :7300 · console :7301, with the worker inside the API process
+make worker   # the worker on its own, for when WORKER_IN_PROCESS is off
+```
+
+`src/worker.ts` is a second entrypoint rather than a flag on the first, because the two have
+different reasons to be restarted and different reasons to be scaled. An API replica that
+also claimed jobs would multiply the workers every time the API was scaled out for traffic —
+the opposite of what more traffic asks for.
+
+`WORKER_IN_PROCESS` is **on in development and off everywhere else**, so `make dev` stays one
+terminal while production runs the two separately by default. Both entrypoints go through
+`startWorker()` in `queue/worker.ts`, so the decisions they share — is there anything for a
+worker to claim, has one already been started — are written once.
+
+The worker holds a `setInterval` it never uses. That is not an oversight: the poll timer is
+`.unref()`'d on purpose, so without a handle of its own the process would start, find nothing
+to claim, and exit as though it had finished. The line says out loud that the process is
+alive because it is a worker.
+
+### Shutting down
+
+Shutdown tasks run in **reverse registration order**, and the ordering here is bought by
+imports rather than by remembering:
+
+```text
+1. the HTTP server stops accepting requests   (registered last  → runs first)
+2. the worker stops claiming, and waits       QUEUE_SHUTDOWN_GRACE_MS
+3. the pool closes                            (registered first → runs last)
+```
+
+Step 2 before step 3 is the one that matters: close the pool first and the last job in flight
+dies mid-write. When the grace period runs out the handlers still going are told through
+`ctx.signal` that nobody is waiting any more, and the rows they were holding stay `running`
+until `reap()` hands them to somebody else. The grace is deliberately below the shutdown
+registry's own ten-second patience, so the warning it logs is one somebody actually sees.
+
 ## Adding a job
 
 1. Write the handler in `queue/jobs/`. It takes `(payload, ctx)` and returns `Promise<void>`.
@@ -168,3 +209,5 @@ a worker that died — a live one finishes or fails in seconds. `reap()` puts it
 | `QUEUE_CONCURRENCY`         | `5`        | Jobs claimed per batch by one worker             |
 | `QUEUE_MAX_ATTEMPTS`        | `3`        | A job definition may override it                 |
 | `QUEUE_STALE_AFTER_MINUTES` | `15`       | After this, a `running` row is assumed abandoned |
+| `QUEUE_SHUTDOWN_GRACE_MS`   | `8000`     | How long a stopping worker waits for its jobs    |
+| `WORKER_IN_PROCESS`         | dev only   | Run the worker inside the API process            |

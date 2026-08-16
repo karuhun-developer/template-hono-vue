@@ -51,8 +51,14 @@ const CATALOG: JobCatalog = {
   'test.slow': { payload: z.object({}), handler: slowHandler },
 }
 
-function queueFor(overrides: { concurrency?: number; staleAfterMs?: number } = {}) {
+function queueFor(
+  overrides: { concurrency?: number; staleAfterMs?: number; pollMs?: number } = {},
+) {
   return createDatabaseQueue({ catalog: CATALOG, ...overrides })
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function cleanJobs(): Promise<void> {
@@ -198,6 +204,24 @@ describe('the database driver', () => {
     expect(row.lockedBy).toBeNull()
     // Not reset: a job that kills its worker every time still has to run out of attempts.
     expect(row.attempts).toBe(1)
+  })
+
+  it('claims on its own once started, and claims nothing once stopped', async () => {
+    const queue = queueFor({ concurrency: 1, pollMs: 20 })
+    queue.start()
+
+    await queue.push(prepareJob('test.ok', { note: 'polled' }, {}, CATALOG))
+
+    for (let waited = 0; ran.length === 0 && waited < 2000; waited += 20) await sleep(20)
+    expect(ran).toEqual(['polled'])
+
+    await queue.stop()
+
+    // Nothing claims this one: `stop()` means stop, not "finish the current interval".
+    await queue.push(prepareJob('test.ok', { note: 'after the stop' }, {}, CATALOG))
+    await sleep(100)
+
+    expect(ran).toEqual(['polled'])
   })
 
   it('enqueues inside the caller transaction, so a rollback takes the job with it', async () => {

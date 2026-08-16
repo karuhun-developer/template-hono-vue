@@ -125,6 +125,28 @@ const envSchema = z
      * A live worker finishes or fails in seconds; anything past this is a crash.
      */
     QUEUE_STALE_AFTER_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+    /**
+     * How long a shutting-down worker waits for the jobs still running before telling them,
+     * through `ctx.signal`, that nobody is waiting any more.
+     *
+     * Deliberately below the shutdown registry's own 10-second per-task timeout: the worker
+     * has to be able to report what it gave up on, and a grace period that outlives the
+     * registry's patience is a warning nobody ever sees.
+     */
+    QUEUE_SHUTDOWN_GRACE_MS: z.coerce.number().int().min(0).max(60_000).default(8000),
+
+    /**
+     * Run the worker inside the API process instead of alongside it.
+     *
+     * Unset, it is `true` in development and `false` everywhere else — see
+     * `workerInProcess` below. `make dev` therefore stays one terminal, while production
+     * opts into a separate process by default, which is what lets the worker be restarted
+     * or scaled without touching the API.
+     */
+    WORKER_IN_PROCESS: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((value) => (value === undefined ? undefined : value === 'true')),
 
     /**
      * The first account `make seed` creates. Read here rather than hard-coded in the
@@ -164,3 +186,13 @@ export const env = loadEnv(process.env)
 
 export const isProduction = env.NODE_ENV === 'production'
 export const isTest = env.NODE_ENV === 'test'
+
+/**
+ * Whether `src/index.ts` also starts the queue worker.
+ *
+ * The default is a function of `NODE_ENV`, which a single Zod field cannot express — a
+ * default is computed before the object is assembled, so it cannot read a sibling. Derived
+ * here instead, beside `isProduction`, rather than through a schema-level transform that
+ * would make the whole shape harder to read for one line of logic.
+ */
+export const workerInProcess = env.WORKER_IN_PROCESS ?? env.NODE_ENV === 'development'

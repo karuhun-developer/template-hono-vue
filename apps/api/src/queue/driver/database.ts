@@ -64,6 +64,13 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/** Resolves `false` after `ms`. Unreffed, so waiting for a grace period never delays an exit. */
+function expire(ms: number): Promise<false> {
+  return new Promise<false>((resolve) => {
+    setTimeout(() => resolve(false), ms).unref()
+  })
+}
+
 export function createDatabaseQueue(options: DatabaseQueueOptions = {}): DatabaseQueue {
   const catalog: JobCatalog = options.catalog ?? JOBS
 
@@ -197,19 +204,37 @@ export function createDatabaseQueue(options: DatabaseQueueOptions = {}): Databas
       schedule(0)
     },
 
-    stop: async () => {
+    stop: async (stopOptions = {}) => {
       running = false
       if (timer !== null) {
         clearTimeout(timer)
         timer = null
       }
+
       // Wait for the batch already in flight. `runJob` records its own outcome and never
       // rejects, so the only failure that can reach here is a claim that could not run.
-      if (batch !== null) {
-        await batch.catch((err: unknown) => {
-          logger.error({ err }, 'queue tick failed during shutdown')
-        })
+      const current = batch
+      if (current !== null) {
+        const graceMs = stopOptions.graceMs ?? env.QUEUE_SHUTDOWN_GRACE_MS
+        const finished = await Promise.race([
+          current.then(
+            () => true,
+            (err: unknown) => {
+              logger.error({ err }, 'queue tick failed during shutdown')
+              return true
+            },
+          ),
+          expire(graceMs),
+        ])
+
+        if (!finished) {
+          logger.warn({ graceMs }, 'jobs were still running when the grace period ran out')
+        }
       }
+
+      // Last, and unconditionally. A handler that watches the signal now knows nobody is
+      // waiting for it; one that ignores it will be cut off with the process, and its row
+      // stays `running` until `reap()` hands it to somebody else.
       controller.abort()
     },
 

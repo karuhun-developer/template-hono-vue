@@ -4,9 +4,10 @@ import { app } from '#app'
 // Imported for its side effect: loading it is what registers the pool's shutdown task,
 // and it must happen before the one registered below so that it runs after it.
 import '#db/client'
-import { env } from '#env'
+import { env, workerInProcess } from '#env'
 import { logger } from '#lib/logger'
 import { installSignalHandlers, onShutdown } from '#lib/shutdown'
+import { startWorker, stopWorker } from '#queue/worker'
 
 const server = serve({ fetch: app.fetch, hostname: env.API_HOST, port: env.API_PORT }, (info) => {
   logger.info(
@@ -14,6 +15,21 @@ const server = serve({ fetch: app.fetch, hostname: env.API_HOST, port: env.API_P
     `${env.APP_NAME} API ready`,
   )
 })
+
+/**
+ * One terminal in development, two processes in production.
+ *
+ * Registered before the HTTP server's task below, so it runs after it: the server stops
+ * accepting requests first, and only then does the worker stop claiming — otherwise a
+ * request arriving during shutdown could enqueue a job with nothing left to run it.
+ *
+ * Nothing here is conditional on being the API. `startWorker()` refuses on the sync driver,
+ * where a handler has already run inside the request that enqueued it.
+ */
+if (workerInProcess) {
+  onShutdown('worker', stopWorker)
+  if (startWorker()) logger.info({ driver: env.QUEUE_DRIVER }, 'queue worker running in-process')
+}
 
 /**
  * Stop accepting new connections and let the requests already in flight finish. This

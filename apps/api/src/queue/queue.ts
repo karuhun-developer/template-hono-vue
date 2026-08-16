@@ -49,8 +49,13 @@ export type QueueDriver = {
   push: (job: QueuedJob, tx?: Transaction) => Promise<void>
   /** Begin claiming work. Called by the worker, never by the API. */
   start: () => void
-  /** Stop claiming and let what is in flight finish. Safe to call when never started. */
-  stop: () => Promise<void>
+  /**
+   * Stop claiming and let what is in flight finish, for up to `graceMs`. Then the handlers
+   * still running are told through `ctx.signal` that nobody is waiting any more.
+   *
+   * Safe to call when nothing was ever started.
+   */
+  stop: (options?: { graceMs?: number }) => Promise<void>
 }
 
 export type EnqueueOptions = {

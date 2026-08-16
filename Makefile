@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f docker-compose.yml -f docker-compose.dev.yml
 
-.PHONY: help setup up down logs ps psql dev check typecheck lint test fmt generate migrate seed reset rename
+.PHONY: help setup up down logs ps psql dev worker check typecheck lint test fmt generate migrate seed reset rename
 
 help: ## Show this list
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -27,6 +27,9 @@ psql: ## Open a psql shell on the app database
 
 dev: ## Run every app in development mode
 	pnpm dev
+
+worker: ## Run the queue worker as its own process (set WORKER_IN_PROCESS=false first)
+	pnpm --filter @app/api worker
 
 generate: ## Generate a migration from schema changes (usage: make generate name=add_settings)
 	pnpm --filter @app/api db:generate --name=$(name)
