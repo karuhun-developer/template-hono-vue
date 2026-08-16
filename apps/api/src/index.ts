@@ -4,10 +4,23 @@ import { app } from '#app'
 // Imported for its side effect: loading it is what registers the pool's shutdown task,
 // and it must happen before the one registered below so that it runs after it.
 import '#db/client'
-import { env, workerInProcess } from '#env'
+import { env, isProduction, workerInProcess } from '#env'
 import { logger } from '#lib/logger'
 import { installSignalHandlers, onShutdown } from '#lib/shutdown'
 import { startWorker, stopWorker } from '#queue/worker'
+
+/**
+ * A warning rather than a refusal. Some installations genuinely want no outbound mail — an
+ * internal tool where accounts are handed out in person is a real thing — so this is not a
+ * `superRefine` error. But the other reason to be running it in production is having
+ * forgotten to configure a transport, and that one is invisible until somebody cannot
+ * accept their invitation.
+ */
+if (isProduction && env.MAIL_DRIVER === 'log') {
+  logger.warn(
+    'MAIL_DRIVER=log in production — nothing is actually sent. Invitations and password resets will only ever reach the mail log.',
+  )
+}
 
 const server = serve({ fetch: app.fetch, hostname: env.API_HOST, port: env.API_PORT }, (info) => {
   logger.info(

@@ -296,6 +296,9 @@ registry's own ten-second patience, so the warning it logs is one somebody actua
   which does not exist outside a handler.
 - A payload carries **ids, not rows**. A row copied into a payload is a row that has changed
   by the time the job runs.
+- A handler that must clean something up before giving up compares `ctx.attempt` with
+  `ctx.maxAttempts`. That is the only signal it gets that this attempt is the last one —
+  `mail.send` uses it to drop a token that must not outlive its send.
 - The API never calls `queue.start()`. An API replica that quietly began claiming jobs is a
   second worker nobody asked for.
 

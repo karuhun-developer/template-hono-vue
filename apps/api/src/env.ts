@@ -160,6 +160,37 @@ const envSchema = z
       .transform((value) => (value === undefined ? undefined : value === 'true')),
 
     /**
+     * How email leaves this process.
+     *
+     * `log` is the default, and it is a real driver rather than a stub: it writes the
+     * message to the log **and** to `mail_messages`, so a fresh clone with no SMTP server
+     * anywhere can still invite somebody and read the link. Configuring a transport is
+     * therefore a thing you do when you are ready, not a thing standing between you and the
+     * first run.
+     */
+    MAIL_DRIVER: z.enum(['log']).default('log'),
+
+    /**
+     * The envelope sender. Recorded on every row as it read at the time, so a message sent
+     * under a domain you have since left still says so.
+     */
+    MAIL_FROM: z.email().default('no-reply@example.com'),
+    MAIL_FROM_NAME: z.string().trim().min(1).max(120).optional(),
+
+    /** How long a sent or failed message is kept. A mail log that grows forever is a table nobody vacuums. */
+    MAIL_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
+
+    /**
+     * Where the console is, from the outside.
+     *
+     * Effectively required, and this is the setting people are surprised by: every link in
+     * an email is absolute, and the code that builds it runs in a **worker**, where
+     * `window.location.origin` — which `InviteTokenDialog.vue` uses today — does not exist.
+     * The cross-field rule below keeps it honest.
+     */
+    CONSOLE_URL: z.url().default('http://localhost:7301'),
+
+    /**
      * The first account `make seed` creates. Read here rather than hard-coded in the
      * seeder so that a fresh clone can be given a real address without editing source —
      * and so the password of the very first account never has to be committed.
@@ -184,6 +215,21 @@ const envSchema = z
         path: ['REDIS_URL'],
         message:
           'is required when QUEUE_DRIVER=redis — write it as redis://localhost:7379. Without it nothing would fail until the first enqueue, which is a request, in production, at the worst moment.',
+      })
+    }
+
+    // The cross-field rule that pays for itself. Every link in an email is built from
+    // CONSOLE_URL, so an origin the console's own API will not talk to means an invitation
+    // that lands on a page whose first request is blocked by CORS — a failure that looks
+    // like a broken invitation and is actually a typo in a different variable.
+    if (
+      !config.CORS_ORIGINS.includes('*') &&
+      !config.CORS_ORIGINS.includes(new URL(config.CONSOLE_URL).origin)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CONSOLE_URL'],
+        message: `is ${new URL(config.CONSOLE_URL).origin}, which is not in CORS_ORIGINS (${config.CORS_ORIGINS.join(', ')}). Every link in an email points at this origin, so the page it opens would be unable to call this API.`,
       })
     }
   })

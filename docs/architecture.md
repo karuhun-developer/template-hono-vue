@@ -51,6 +51,10 @@ Inside `apps/api/src`:
 | `middleware/`     | Request context, sessions, RBAC, error normalisation                                     | Hono             |
 | `modules/<name>/` | `*.routes.ts`, `*.schema.ts`, `*.service.ts`, `*.repo.ts`                                | Its own domain   |
 | `platform/`       | Repositories shared across modules (`session.repo.ts`, `auth.repo.ts`, `invite.repo.ts`) | The database     |
+| `queue/`          | Background work: the catalog, the drivers, the worker loop, the handlers                 | Its own table    |
+| `mail/`           | Templates, the outbox, the transports                                                    | Its own table    |
+
+The last two are **subsystems** rather than modules: each owns a table, exposes a driver interface, runs outside a request, and never imports from `modules/`. A subsystem gets a `modules/<name>/` of its own only when it needs an HTTP face — the relationship `modules/jobs` has with `queue/`, and the one `modules/auth` already had with `platform/session.repo.ts`.
 
 ## Request lifecycle
 

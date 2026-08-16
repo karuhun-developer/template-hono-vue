@@ -2,6 +2,7 @@ import type { Logger } from 'pino'
 import { z } from 'zod'
 
 import { purgeInvitesJob, purgeResetsJob, pruneSessionsJob } from '#queue/jobs/cleanup'
+import { pruneMailJob, sendMailJob, sweepStuckMailJob } from '#queue/jobs/mail'
 
 /**
  * The catalog of everything that can be enqueued.
@@ -27,6 +28,12 @@ export type JobContext = {
   readonly jobId: string
   /** 1 on the first attempt. */
   readonly attempt: number
+  /**
+   * How many attempts this job gets under the configured driver — 1 under `sync`, which
+   * does not retry. `attempt >= maxAttempts` is how a handler knows it is on its last
+   * chance, which is what lets one clean up material it must not leave behind.
+   */
+  readonly maxAttempts: number
   /** Already carrying `{ job, jobId }`. Background work has no request, so no `c.get('logger')`. */
   readonly logger: Logger
   /** Aborted when the worker is shutting down and the grace period has run out. */
@@ -58,6 +65,15 @@ export const JOBS = {
   'sessions.prune': { payload: NO_PAYLOAD, handler: pruneSessionsJob },
   'invites.purge': { payload: NO_PAYLOAD, handler: purgeInvitesJob },
   'password-resets.purge': { payload: NO_PAYLOAD, handler: purgeResetsJob },
+
+  /**
+   * An id, not the message. The row is the source of truth and the job is a pointer at it,
+   * so a retry re-reads what actually happened rather than re-sending a copy of what was
+   * true when it was enqueued.
+   */
+  'mail.send': { payload: z.object({ messageId: z.uuid() }), handler: sendMailJob },
+  'mail.sweep-stuck': { payload: NO_PAYLOAD, handler: sweepStuckMailJob },
+  'mail.prune': { payload: NO_PAYLOAD, handler: pruneMailJob },
 } as const satisfies JobCatalog
 
 export type JobName = keyof typeof JOBS

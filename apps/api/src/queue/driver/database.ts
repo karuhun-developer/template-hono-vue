@@ -101,6 +101,7 @@ export function createDatabaseQueue(options: DatabaseQueueOptions = {}): Databas
         name: row.name,
         jobId: row.id,
         attempt: row.attempts,
+        maxAttempts: row.maxAttempts,
         logger: child,
         signal: controller.signal,
       })

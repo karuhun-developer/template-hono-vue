@@ -54,6 +54,8 @@ export function createSyncQueue(options: SyncQueueOptions = {}): QueueDriver {
       name: job.name,
       jobId,
       attempt: 1,
+      // One, not the job's setting: this driver rethrows and never comes back.
+      maxAttempts: 1,
       logger: child,
       signal: controller.signal,
     })

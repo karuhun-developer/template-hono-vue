@@ -217,6 +217,7 @@ export function createRedisQueue(options: RedisQueueOptions = {}): RedisQueue {
         name: job.name,
         jobId,
         attempt,
+        maxAttempts,
         logger: child,
         signal: controller.signal,
       })
