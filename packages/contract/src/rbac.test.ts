@@ -74,6 +74,7 @@ describe('system roles', () => {
       'audit.read',
       'job.read',
       'job.manage',
+      'mail.read',
       'schedule.read',
       'schedule.run',
     ]

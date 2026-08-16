@@ -3,6 +3,7 @@ import type { PgColumn } from 'drizzle-orm/pg-core'
 
 import { db, type DatabaseHandle } from '#db/client'
 import { roles, userRoles, users, type UserStatus } from '#db/schema'
+import { escapeLike } from '#lib/query'
 import type { ListUsersSort } from '#modules/users/users.schema'
 
 /**
@@ -231,9 +232,4 @@ export async function replaceUserRoles(
     // The payload is allowed to repeat itself; the composite primary key is the referee,
     // not an extra check up here.
     .onConflictDoNothing()
-}
-
-/** `%`, `_` and `\` typed into a search box are literal characters, not wildcards. */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (match) => `\\${match}`)
 }

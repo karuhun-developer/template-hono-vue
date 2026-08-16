@@ -52,6 +52,7 @@ export const PERMISSIONS = [
   // live data and cancelling one throws work away.
   { key: 'job.read', group: 'operations', label: 'View background jobs' },
   { key: 'job.manage', group: 'operations', label: 'Retry and cancel background jobs' },
+  { key: 'mail.read', group: 'operations', label: 'View the mail log' },
   { key: 'schedule.read', group: 'operations', label: 'View scheduled jobs' },
   { key: 'schedule.run', group: 'operations', label: 'Run a scheduled job now' },
 ] as const satisfies readonly PermissionDefinition[]

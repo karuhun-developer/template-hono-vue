@@ -1,7 +1,9 @@
-import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, ilike, inArray, lt, or, sql, type SQL } from 'drizzle-orm'
+import type { PgColumn } from 'drizzle-orm/pg-core'
 
 import type { Database, DatabaseHandle } from '#db/client'
-import { mailMessages, type MailMessage } from '#db/schema'
+import { mailMessages, type MailMessage, type MailStatus } from '#db/schema'
+import { escapeLike } from '#lib/query'
 
 /**
  * Every read and write of `mail_messages`.
@@ -39,6 +41,83 @@ export const mailColumns = {
   createdAt: mailMessages.createdAt,
   updatedAt: mailMessages.updatedAt,
 } as const
+
+/**
+ * A message as the read API is allowed to describe it.
+ *
+ * Derived by subtraction from the row type rather than written out, so a column added to
+ * the table joins this automatically and a column added to the *dangerous* list has to be
+ * named here — which is the direction that fails loudly.
+ */
+export type MailRecord = Omit<MailMessage, 'payload'>
+
+export type ListMailFilter = {
+  status?: readonly MailStatus[] | undefined
+  template?: readonly string[] | undefined
+  /** Matched against the recipient and the subject — the two things support asks by. */
+  q?: string | undefined
+  page: number
+  perPage: number
+  sort: 'createdAt' | 'sentAt' | 'status'
+  order: 'asc' | 'desc'
+}
+
+export type ListMailPage = { rows: MailRecord[]; total: number }
+
+const SORTABLE = {
+  createdAt: mailMessages.createdAt,
+  sentAt: mailMessages.sentAt,
+  status: mailMessages.status,
+} as const satisfies Record<ListMailFilter['sort'], PgColumn>
+
+export async function listMailMessages(
+  database: Database,
+  filter: ListMailFilter,
+): Promise<ListMailPage> {
+  const where: SQL[] = []
+  if (filter.status?.length) where.push(inArray(mailMessages.status, [...filter.status]))
+  if (filter.template?.length) where.push(inArray(mailMessages.template, [...filter.template]))
+
+  if (filter.q) {
+    const needle = `%${escapeLike(filter.q)}%`
+    // Not the body. It is the largest column here and searching it would be a sequential
+    // scan dressed up as a feature — and on a masked copy, so the interesting parts of it
+    // read `[redacted]` anyway.
+    where.push(or(ilike(mailMessages.toEmail, needle), ilike(mailMessages.subject, needle)) as SQL)
+  }
+
+  const condition = where.length > 0 ? and(...where) : undefined
+  const direction = filter.order === 'desc' ? desc : asc
+
+  const [rows, [counted]] = await Promise.all([
+    database
+      .select(mailColumns)
+      .from(mailMessages)
+      .where(condition)
+      // `id` breaks ties, for the reason the user list gives: two pages of an unstable sort
+      // can show one row twice and skip another entirely.
+      .orderBy(direction(SORTABLE[filter.sort]), asc(mailMessages.id))
+      .limit(filter.perPage)
+      .offset((filter.page - 1) * filter.perPage),
+
+    // The same `where`, deliberately. A count over a different condition is a pager that
+    // promises pages which are not there.
+    database.select({ value: count() }).from(mailMessages).where(condition),
+  ])
+
+  return { rows, total: counted?.value ?? 0 }
+}
+
+/** The detail view. Through `mailColumns` as well — there is no read path that is not. */
+export async function findMailMessage(database: Database, id: string): Promise<MailRecord | null> {
+  const [row] = await database
+    .select(mailColumns)
+    .from(mailMessages)
+    .where(eq(mailMessages.id, id))
+    .limit(1)
+
+  return row ?? null
+}
 
 export type NewMailRow = {
   toEmail: string

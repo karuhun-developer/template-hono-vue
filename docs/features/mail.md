@@ -12,6 +12,7 @@ Email that is written inside the transaction that decided to send it, and sent b
 | Row access                | `apps/api/src/mail/mail.repo.ts`  |
 | The `mail_messages` table | `apps/api/src/db/schema/mail.ts`  |
 | The jobs                  | `apps/api/src/queue/jobs/mail.ts` |
+| The console's endpoints   | `apps/api/src/modules/mail/`      |
 
 ## Sending
 
@@ -135,6 +136,21 @@ SMTP_PORT=1025
 A payload that no longer parses is a **terminal** failure rather than a retry — the same bytes will not parse on the second attempt either, and three identical failures is one confusing log line repeated rather than any more information. Everything else follows the queue's own attempt accounting: `attempt >= maxAttempts` is how the handler knows it is on its last chance, and that is when the payload goes.
 
 `mail.prune` deletes only `sent` and `failed` rows. A `queued` row past the window is the sweep's business; deleting it would throw away a message rather than a record of one.
+
+## Endpoints
+
+| Method | Path                 | Permission  |
+| ------ | -------------------- | ----------- |
+| `GET`  | `/mail-messages`     | `mail.read` |
+| `GET`  | `/mail-messages/:id` | `mail.read` |
+
+Paged, with `status` and `template` facets and a `q` across the recipient and the subject. Not the body: it is the largest column in the table, and the parts of the stored copy worth searching read `[redacted]` anyway.
+
+Both routes select through `mailColumns`, including the detail one — the place a body is actually rendered is no closer to `payload` than the list is. `mail-log.test.ts` asserts that against the **raw response text**, because the question is whether the token left the process at all, not whether some particular field was cleared.
+
+**There is no resend, and no delete.** By the time a message is terminal its `payload` is `NULL`, so the only thing left to send is the masked copy — a button that silently delivered an invitation reading `[redacted]` would be worse than no button. Sending again is inviting again, from the endpoint that knows how to issue a fresh token. And deleting is `mail.prune`'s job, on a schedule, rather than a control that lets somebody remove the record of a message they would rather nobody read.
+
+`mail.read` is **owner-only** — a stricter bar than the rest of the Operations group, because what these two routes return is a copy of every message this application has sent, including the ones about whoever is asking.
 
 ## Settings
 

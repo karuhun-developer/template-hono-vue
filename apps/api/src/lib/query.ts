@@ -26,3 +26,15 @@ export function repeatable<T extends z.ZodTypeAny>(value: T) {
     .union([value, z.array(value)])
     .transform((given) => (Array.isArray(given) ? given : [given]) as z.output<T>[])
 }
+
+/**
+ * Make a search term safe to drop between two `%` signs.
+ *
+ * `%` and `_` are wildcards to `LIKE`, so an unescaped `%` typed into a search box is a
+ * query that matches everything and a `_` is one that quietly matches too much. Neither is
+ * an injection — the value is still a bound parameter — which is exactly why it goes
+ * unnoticed: the endpoint answers 200 with the wrong rows.
+ */
+export function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`)
+}

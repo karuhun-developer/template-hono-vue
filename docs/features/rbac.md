@@ -14,7 +14,7 @@ A permission catalog defined in code, roles stored in the database, and one enfo
 
 ## The catalog
 
-Fourteen keys in four groups. Deliberately small: **a permission with no route behind it is worse than a missing one**, because nobody can tell whether it is wired up or aspirational.
+Fifteen keys in four groups. Deliberately small: **a permission with no route behind it is worse than a missing one**, because nobody can tell whether it is wired up or aspirational.
 
 | Key                   | Group      | Label                            |
 | --------------------- | ---------- | -------------------------------- |
@@ -30,6 +30,7 @@ Fourteen keys in four groups. Deliberately small: **a permission with no route b
 | `audit.read`          | audit      | View the audit log               |
 | `job.read`            | operations | View background jobs             |
 | `job.manage`          | operations | Retry and cancel background jobs |
+| `mail.read`           | operations | View the mail log                |
 | `schedule.read`       | operations | View scheduled jobs              |
 | `schedule.run`        | operations | Run a scheduled job now          |
 
@@ -38,6 +39,8 @@ Keys are named `<domain>.<action>`, and **a dangerous verb gets its own key**. I
 The same reasoning splits the two ways an account can begin. `user.invite` hands out a link and the person chooses their own password; `user.create` sets one on their behalf. And `user.reset_password` is not part of `user.update`, because starting a credential flow on somebody else's account is not something the permission for correcting a name should quietly also do.
 
 The operations group splits the same way, twice. `job.read` answers a support question — "did that invitation email ever go out" — while `job.manage` re-runs code against live data or throws queued work away. `schedule.read` answers "did last night's cleanup run", while `schedule.run` starts it at a moment nobody planned for.
+
+`mail.read` has no `mail.manage` beside it because there is nothing to manage: the mail log is read-only by design, and the reasons are in [mail](mail.md#endpoints).
 
 `PermissionKey` is derived from the array, so a typo in a `requirePermission('user.raed')` call is a compile error rather than a route nobody can reach.
 
@@ -51,7 +54,7 @@ Created by `make seed`, marked `is_system`, and editable but not deletable.
 | **Administrator** | `user.read`, `user.invite`, `user.update`, `role.read`, `role.manage`   |
 | **Member**        | `user.read`                                                             |
 
-The split between owner and admin is not decorative. **The admin deliberately holds none of `user.create`, `user.disable`, `user.delete`, `user.reset_password`, `audit.read`, `job.read`, `job.manage`, `schedule.read` or `schedule.run`**, which makes the grantable rule visible the first time you sign in as one: those checkboxes render disabled, and opening the Owner role gives a locked matrix. A template that only _contains_ the rule teaches nothing; this one demonstrates it in about thirty seconds.
+The split between owner and admin is not decorative. **The admin deliberately holds none of `user.create`, `user.disable`, `user.delete`, `user.reset_password`, `audit.read`, `job.read`, `job.manage`, `mail.read`, `schedule.read` or `schedule.run`**, which makes the grantable rule visible the first time you sign in as one: those checkboxes render disabled, and opening the Owner role gives a locked matrix. A template that only _contains_ the rule teaches nothing; this one demonstrates it in about thirty seconds.
 
 > **This is the whole "superadmin" story.** There is no `isSuperadmin` flag anywhere in this codebase, and an owner-only capability is nothing more than a key that is in the catalog and absent from the Administrator role. `rbac.test.ts` asserts that list, because widening the admin role is exactly the change that would turn every administrator into a superadmin without anybody noticing.
 

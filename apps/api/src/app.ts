@@ -10,6 +10,7 @@ import { auditRoutes } from '#modules/audit/audit.routes'
 import { authRoutes } from '#modules/auth/auth.routes'
 import { healthRoutes } from '#modules/health/health.routes'
 import { jobRoutes } from '#modules/jobs/jobs.routes'
+import { mailRoutes } from '#modules/mail/mail.routes'
 import { roleRoutes } from '#modules/roles/roles.routes'
 import { scheduleRoutes } from '#modules/schedules/schedules.routes'
 import { userRoutes } from '#modules/users/users.routes'
@@ -59,6 +60,7 @@ export const app = base
   .route('/roles', roleRoutes)
   .route('/audit-logs', auditRoutes)
   .route('/jobs', jobRoutes)
+  .route('/mail-messages', mailRoutes)
   .route('/schedules', scheduleRoutes)
 
 export type AppType = typeof app
