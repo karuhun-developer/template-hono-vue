@@ -2,16 +2,18 @@
 
 Work that must happen, but not while somebody is waiting for a response.
 
-| Concern             | File                               |
-| ------------------- | ---------------------------------- |
-| Enqueueing          | `apps/api/src/queue/queue.ts`      |
-| Starting the loop   | `apps/api/src/queue/worker.ts`     |
-| The worker process  | `apps/api/src/worker.ts`           |
-| The catalog of jobs | `apps/api/src/queue/registry.ts`   |
-| Handlers            | `apps/api/src/queue/jobs/`         |
-| The `jobs` table    | `apps/api/src/db/schema/jobs.ts`   |
-| Row access          | `apps/api/src/queue/queue.repo.ts` |
-| Drivers             | `apps/api/src/queue/driver/`       |
+| Concern             | File                                |
+| ------------------- | ----------------------------------- |
+| Enqueueing          | `apps/api/src/queue/queue.ts`       |
+| Starting the loop   | `apps/api/src/queue/worker.ts`      |
+| The worker process  | `apps/api/src/worker.ts`            |
+| The catalog of jobs | `apps/api/src/queue/registry.ts`    |
+| Handlers            | `apps/api/src/queue/jobs/`          |
+| The `jobs` table    | `apps/api/src/db/schema/jobs.ts`    |
+| Row access          | `apps/api/src/queue/queue.repo.ts`  |
+| Drivers             | `apps/api/src/queue/driver/`        |
+| Listing and control | `apps/api/src/queue/queue.admin.ts` |
+| The HTTP face       | `apps/api/src/modules/jobs/`        |
 
 ## Enqueueing
 
@@ -177,6 +179,60 @@ wrong has no answer to "what went wrong".
 > one — `no-misused-promises` and `no-floating-promises` both say so. Rescheduling from the
 > settlement of the previous tick makes overlap impossible by construction. The timer is
 > `.unref()`'d, so an idle poll is never the reason a process refuses to exit.
+
+## Administering jobs
+
+`modules/jobs/` is the queue's HTTP face, behind two owner-only keys — `job.read` to look,
+`job.manage` to change.
+
+| Method | Path               | Permission   |
+| ------ | ------------------ | ------------ |
+| `GET`  | `/jobs`            | `job.read`   |
+| `POST` | `/jobs/:id/retry`  | `job.manage` |
+| `POST` | `/jobs/:id/cancel` | `job.manage` |
+
+There is **no create endpoint**, and there will not be one. A job is enqueued by the code
+that knows what its payload means; an HTTP door onto `enqueue()` would be a way to run
+arbitrary catalog handlers with arbitrary arguments, which is a much larger permission than
+"retry the thing that just failed".
+
+Both transitions are narrow, and both refuse loudly rather than doing something
+approximate:
+
+- **Retry** takes a `failed` or `cancelled` job back to `pending` with `attempts` reset to
+  zero and `last_error` **kept**. Zero rather than "one more", because the button is pressed
+  after somebody has fixed the cause, and a job given one attempt out of an already-spent
+  budget would fail again immediately. A `running` job is refused with a `409`: requeueing a
+  claimed row hands the same payload to a second worker while the first is still inside the
+  handler, which is the one thing the claim query exists to prevent.
+- **Cancel** applies only to a job that has not started, and lands it `cancelled` rather
+  than `failed`. One is a decision and the other is a problem; a page that cannot tell them
+  apart sends people looking for a bug that is not there.
+
+Both are audited inside the transaction that makes the change, like every other write here.
+
+### What each driver can offer
+
+`QueueAdmin` is a **separate interface from `QueueDriver`**. Running a job and answering
+"what happened to it" have different shapes — a claim loop against a paged list — and a
+driver forced to implement both would be two objects sharing a name.
+
+| `QUEUE_DRIVER` | `coverage` | `manageable` | What the list means                                      |
+| -------------- | ---------- | ------------ | -------------------------------------------------------- |
+| `database`     | `all`      | yes          | The table **is** the queue                               |
+| `redis`        | `failures` | no           | The mirrored record of jobs that died                    |
+| `sync`         | `none`     | no           | Nothing ran anywhere but inline, and nothing was written |
+
+`coverage` and `manageable` travel in the list response, so the console states which of the
+three it is looking at instead of rendering an empty table beside a pager. Under `sync` the
+page says _"Jobs run inline in this configuration, so there is nothing to list"_ — honest,
+rather than something that looks broken.
+
+The `redis` admin is deliberately read-only. A row there is a **copy** of something that
+already died inside BullMQ: flipping it back to `pending` would change nothing in Redis,
+where the queue actually is, and would leave a row claiming to be queued that no worker will
+ever look at. Re-running that work is `enqueue()` from a call site that knows what the
+payload means, and a BullMQ dashboard is the tool for the live queue.
 
 ## Stale jobs
 

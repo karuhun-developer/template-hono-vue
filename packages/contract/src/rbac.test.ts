@@ -72,6 +72,8 @@ describe('system roles', () => {
       'user.delete',
       'user.reset_password',
       'audit.read',
+      'job.read',
+      'job.manage',
     ]
 
     const admin = SYSTEM_ROLES.find((r) => r.key === 'admin')!

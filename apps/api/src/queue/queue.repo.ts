@@ -1,7 +1,8 @@
-import { and, eq, isNotNull, lt, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNotNull, lt, sql, type SQL } from 'drizzle-orm'
+import type { PgColumn } from 'drizzle-orm/pg-core'
 
 import type { Database, DatabaseHandle } from '#db/client'
-import { jobs } from '#db/schema'
+import { jobs, type Job, type JobStatus } from '#db/schema'
 
 /**
  * Every read and write of the `jobs` table.
@@ -199,4 +200,119 @@ export async function reapStaleJobs(
     .returning({ id: jobs.id })
 
   return reaped.length
+}
+
+// --- Reading and administering ----------------------------------------------
+
+/**
+ * The orderings the Jobs page offers, mapped to the columns behind them.
+ *
+ * A whitelist for the same reason `users.repo.ts` has one: `sort` arrives from a query
+ * string, and the only thing keeping SQL out of the `ORDER BY` is that the value is used
+ * to *pick* from this object rather than being interpolated into it.
+ */
+const SORTABLE = {
+  createdAt: jobs.createdAt,
+  runAt: jobs.runAt,
+  name: jobs.name,
+  status: jobs.status,
+} as const satisfies Record<string, PgColumn>
+
+export type ListJobsSort = keyof typeof SORTABLE
+
+export type ListJobsFilter = {
+  /** Any of these statuses. Empty or absent means all of them. */
+  status?: readonly JobStatus[] | undefined
+  /** Exact match on the catalog name — the console offers it as a facet, not a search. */
+  name?: readonly string[] | undefined
+  page: number
+  perPage: number
+  sort: ListJobsSort
+  order: 'asc' | 'desc'
+}
+
+export type ListJobsPage = {
+  rows: Job[]
+  /** Rows matching the filter, not rows returned — the pager needs the first number. */
+  total: number
+}
+
+export async function listJobs(database: Database, filter: ListJobsFilter): Promise<ListJobsPage> {
+  const where: SQL[] = []
+  if (filter.status?.length) where.push(inArray(jobs.status, [...filter.status]))
+  if (filter.name?.length) where.push(inArray(jobs.name, [...filter.name]))
+
+  const condition = where.length > 0 ? and(...where) : undefined
+  const direction = filter.order === 'desc' ? desc : asc
+
+  const [rows, [counted]] = await Promise.all([
+    database
+      .select()
+      .from(jobs)
+      .where(condition)
+      // `id` breaks ties, for the reason the user list gives: two pages of an unstable
+      // sort can show one row twice and skip another entirely.
+      .orderBy(direction(SORTABLE[filter.sort]), asc(jobs.id))
+      .limit(filter.perPage)
+      .offset((filter.page - 1) * filter.perPage),
+
+    // The same `where`, deliberately. A count over a different condition is a pager that
+    // promises pages which are not there.
+    database.select({ value: count() }).from(jobs).where(condition),
+  ])
+
+  return { rows, total: counted?.value ?? 0 }
+}
+
+export async function findJob(handle: DatabaseHandle, id: string): Promise<Job | null> {
+  const [row] = await handle.select().from(jobs).where(eq(jobs.id, id)).limit(1)
+  return row ?? null
+}
+
+/**
+ * Put a job that has stopped back in line.
+ *
+ * `attempts` goes back to zero rather than continuing where it left off. A retry is a
+ * decision somebody made after looking at `last_error` — usually after fixing whatever
+ * caused it — so giving the job one attempt from a budget it has already exhausted would
+ * make the button useless exactly when it is pressed.
+ *
+ * `last_error` is kept. It is the reason the row was retried, and clearing it would erase
+ * the answer to "what was wrong with it" the moment somebody acted on it.
+ */
+export async function requeueJob(handle: DatabaseHandle, id: string): Promise<Job> {
+  const [row] = await handle
+    .update(jobs)
+    .set({
+      status: 'pending',
+      attempts: 0,
+      runAt: new Date(),
+      finishedAt: null,
+      lockedAt: null,
+      lockedBy: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(jobs.id, id))
+    .returning()
+
+  if (!row) throw new Error(`the job ${id} could not be read back after being requeued`)
+  return row
+}
+
+/** Stop a job that has not run yet. Terminal: `cancelled` is not claimable. */
+export async function cancelJob(handle: DatabaseHandle, id: string): Promise<Job> {
+  const [row] = await handle
+    .update(jobs)
+    .set({
+      status: 'cancelled',
+      finishedAt: new Date(),
+      lockedAt: null,
+      lockedBy: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(jobs.id, id))
+    .returning()
+
+  if (!row) throw new Error(`the job ${id} could not be read back after being cancelled`)
+  return row
 }

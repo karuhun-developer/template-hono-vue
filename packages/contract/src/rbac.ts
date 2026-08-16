@@ -18,7 +18,7 @@
  * as you add the endpoints that check them — see docs/guides/add-api-module.md.
  */
 
-export const PERMISSION_GROUPS = ['users', 'roles', 'audit'] as const
+export const PERMISSION_GROUPS = ['users', 'roles', 'audit', 'operations'] as const
 
 export type PermissionGroup = (typeof PERMISSION_GROUPS)[number]
 
@@ -44,6 +44,14 @@ export const PERMISSIONS = [
 
   // Audit
   { key: 'audit.read', group: 'audit', label: 'View the audit log' },
+
+  // Operations
+  //
+  // Reading and administering are split for the usual reason: "what happened to that
+  // invitation email" is a support question, while retrying a job re-runs code against
+  // live data and cancelling one throws work away.
+  { key: 'job.read', group: 'operations', label: 'View background jobs' },
+  { key: 'job.manage', group: 'operations', label: 'Retry and cancel background jobs' },
 ] as const satisfies readonly PermissionDefinition[]
 
 export type PermissionKey = (typeof PERMISSIONS)[number]['key']

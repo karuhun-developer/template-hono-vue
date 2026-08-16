@@ -168,6 +168,7 @@ export const app = base
   .route('/users', userRoutes)
   .route('/roles', roleRoutes)
   .route('/audit-logs', auditRoutes)
+  .route('/jobs', jobRoutes)
 
 export type AppType = typeof app
 ```
