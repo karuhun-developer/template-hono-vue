@@ -109,9 +109,32 @@ Point a subsystem at it with `REDIS_URL` plus the driver setting that wants it
 environment variable that is not validated in `apps/api/src/env.ts` is one that fails three
 hours into a request instead of in the first second of boot.
 
+## Mailpit
+
+A mail server that accepts everything and delivers nothing, so `MAIL_DRIVER=smtp` is
+exercisable without a provider account and without anything reaching a real inbox:
+
+```bash
+make up-mail    # SMTP on 1025 · inbox on http://localhost:8025
+```
+
+```dotenv
+MAIL_DRIVER=smtp
+SMTP_HOST=localhost
+SMTP_PORT=1025
+```
+
+It is the **one service defined only in the dev overlay**, and that is the point: a fake mail
+server is not a thing a production stack should be able to grow by accident, and unlike
+Postgres and Redis there is no production counterpart of it to configure. Messages are kept
+in memory only — a development mailbox that survives a restart is a mailbox somebody
+eventually reads a stale link out of.
+
+Under the default `MAIL_DRIVER=log` none of this is needed; see [Mail](mail.md).
+
 ## Conventions
 
-- New services go in `docker-compose.yml`; **ports go only in the dev overlay.**
+- New services go in `docker-compose.yml`; **ports go only in the dev overlay.** Mailpit is the documented exception, and the section above says why.
 - Every service gets a healthcheck. `--wait` is only as good as the checks behind it.
 - Every new setting gets an entry in `.env.example`, under a `# ===` header with a line saying what it does.
 - Never put a secret in a compose file. `.env` is git-ignored; `.env.example` holds placeholders.

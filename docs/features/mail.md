@@ -90,13 +90,37 @@ export const TEMPLATES = {
 
 ## Drivers
 
-| `MAIL_DRIVER` | Sends to | Writes `mail_messages` | Needs configuration |
-| ------------- | -------- | ---------------------- | ------------------- |
-| `log`         | the log  | yes                    | none                |
+| `MAIL_DRIVER` | Sends to      | Writes `mail_messages` | Needs configuration |
+| ------------- | ------------- | ---------------------- | ------------------- |
+| `log`         | the log       | yes                    | none                |
+| `smtp`        | a mail server | yes                    | `SMTP_HOST`         |
 
 `log` is the default and a **real driver**, not a stub. A fresh clone has no SMTP server, no provider account and no API key, and the first thing anybody does with this template is invite somebody — with this driver that works, the row lands in the table, and the link is in the terminal running `make dev`. Outside production it logs the text body for exactly that reason; in production it does not, because a log aggregator holding invitation links is a credential store nobody is treating as one.
 
 `MAIL_DRIVER=log` in production is **allowed** — an internal tool where accounts are handed out in person is a real thing — and warns at boot, because the other reason to be running it there is having forgotten to configure a transport.
+
+### `smtp`
+
+`nodemailer`, one pooled transport, opened by the **first send** and closed through `onShutdown`. Every vendor worth using speaks SMTP, so an SDK would tie the template to one of them; `node:net` would mean hand-writing STARTTLS and AUTH negotiation, two things only ever noticed when they are wrong.
+
+**`verify()` is never called, at boot or anywhere else.** A mail server having a bad afternoon must not be an API that refuses to start — the failure belongs where every other transient failure here belongs, which is a job that retries. That is also why constructing the driver opens nothing.
+
+Two settings are guesses the driver makes for you, and both fail in ways that read as somebody else's fault:
+
+- **Implicit TLS is inferred from the port** — `465` yes, anything else no. On `587` nodemailer upgrades through `STARTTLS` on its own; opening `465` in the clear _hangs_ rather than failing. `SMTP_SECURE` exists for the relay that put SMTPS somewhere unusual.
+- **`auth` is omitted entirely when `SMTP_USER` is unset**, not sent as an empty pair. A relay that authenticates by IP is offered no credentials at all; the alternative reads as a rejected password on a server that never wanted one.
+
+`smtpTransportOptions()` is a pure function for exactly that reason, and it is all the driver's unit tests touch. Nothing pretends to reach a server — what would be under test is nodemailer.
+
+For development, `make up-mail` starts **Mailpit**: SMTP on `1025`, an inbox on <http://localhost:8025>, nothing delivered anywhere. It lives in the dev compose overlay only, so no production stack can grow one by accident.
+
+```bash
+make up-mail
+# .env
+MAIL_DRIVER=smtp
+SMTP_HOST=localhost
+SMTP_PORT=1025
+```
 
 ## The jobs
 
@@ -114,15 +138,20 @@ A payload that no longer parses is a **terminal** failure rather than a retry �
 
 ## Settings
 
-| Variable              | Default                 | Notes                                                                  |
-| --------------------- | ----------------------- | ---------------------------------------------------------------------- |
-| `MAIL_DRIVER`         | `log`                   | Works with no configuration at all                                     |
-| `MAIL_FROM`           | `no-reply@example.com`  | Copied onto every row as it read at the time                           |
-| `MAIL_FROM_NAME`      | unset                   | The display name, quoted into the `From:` header                       |
-| `MAIL_RETENTION_DAYS` | `30`                    | A mail log that grows forever is a table nobody vacuums                |
-| `CONSOLE_URL`         | `http://localhost:7301` | Every link is built from it — **its origin must be in `CORS_ORIGINS`** |
+| Variable              | Default                 | Notes                                                                     |
+| --------------------- | ----------------------- | ------------------------------------------------------------------------- |
+| `MAIL_DRIVER`         | `log`                   | `log` \| `smtp`. Works with no configuration at all                       |
+| `MAIL_FROM`           | `no-reply@example.com`  | Copied onto every row as it read at the time                              |
+| `MAIL_FROM_NAME`      | unset                   | The display name, quoted into the `From:` header                          |
+| `MAIL_RETENTION_DAYS` | `30`                    | A mail log that grows forever is a table nobody vacuums                   |
+| `CONSOLE_URL`         | `http://localhost:7301` | Every link is built from it — **its origin must be in `CORS_ORIGINS`**    |
+| `SMTP_HOST`           | unset                   | **Required when `MAIL_DRIVER=smtp`** — the API refuses to boot without it |
+| `SMTP_PORT`           | `587`                   | Submission with `STARTTLS`, which is what a relay offers by default       |
+| `SMTP_SECURE`         | inferred                | Implicit TLS. Unset means `port === 465`                                  |
+| `SMTP_USER`           | unset                   | Unset means no `AUTH` at all, for a relay that authenticates by IP        |
+| `SMTP_PASSWORD`       | unset                   | Never in a compose file and never in `.env.example`                       |
 
-That last rule is a `superRefine` and the API refuses to boot without it. A `CONSOLE_URL` outside `CORS_ORIGINS` means an invitation that lands on a page whose first request is blocked — a failure that looks like a broken invitation and is actually a typo in a different variable.
+Both cross-field rules are a `superRefine` and the API refuses to boot without them. `SMTP_HOST` missing under `MAIL_DRIVER=smtp` would otherwise surface as every invitation retrying three times and landing `failed` — a broken-looking mail server that is really a missing setting. A `CONSOLE_URL` outside `CORS_ORIGINS` means an invitation that lands on a page whose first request is blocked — a failure that looks like a broken invitation and is actually a typo in a different variable.
 
 ## Adding a template
 

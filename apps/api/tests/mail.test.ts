@@ -7,6 +7,7 @@ import { closeDatabase, db } from '#db/client'
 import { transaction } from '#db/tx'
 import { mailMessages } from '#db/schema'
 import { logger } from '#lib/logger'
+import { createSmtpMailer, smtpTransportOptions } from '#mail/driver/smtp'
 import { pruneMailMessages } from '#mail/mail.repo'
 import type { MailDriver, OutgoingMail, SendResult } from '#mail/mailer'
 import { queueMail } from '#mail/outbox'
@@ -154,6 +155,63 @@ describe('rendering', () => {
   it('refuses a payload the template could not render', () => {
     // Caught here rather than three retries later in a worker log.
     expect(() => renderTemplate('invitation', { name: 'Ada', token: TOKEN })).toThrow(/invalid/)
+  })
+})
+
+/**
+ * The option mapping, and nothing else.
+ *
+ * Nothing here pretends to reach a mail server: what would be under test is nodemailer. What
+ * is ours is the two guesses the driver makes on a caller's behalf, and both of them fail in
+ * ways that read as somebody else's fault — a hang, or a rejected password on a server that
+ * never asked for one.
+ */
+describe('the smtp driver', () => {
+  it('infers implicit TLS from port 465 and STARTTLS from anything else', () => {
+    expect(smtpTransportOptions({ host: 'mail.example.com', port: 465 }).secure).toBe(true)
+    // 587 is plaintext first and upgraded, which nodemailer does on its own. Opening it
+    // encrypted would hang rather than fail.
+    expect(smtpTransportOptions({ host: 'mail.example.com', port: 587 }).secure).toBe(false)
+  })
+
+  it('lets SMTP_SECURE override the guess', () => {
+    const options = smtpTransportOptions({ host: 'mail.example.com', port: 2525, secure: true })
+
+    expect(options.secure).toBe(true)
+  })
+
+  it('omits auth entirely when no user is configured', () => {
+    const options = smtpTransportOptions({ host: 'relay.internal', port: 25 })
+
+    // Not `{ user: undefined }`: a relay that authenticates by IP is offered nothing, rather
+    // than an empty pair it would refuse.
+    expect('auth' in options).toBe(false)
+    expect(options.pool).toBe(true)
+  })
+
+  it('passes credentials through when there are any', () => {
+    const options = smtpTransportOptions({
+      host: 'mail.example.com',
+      port: 587,
+      user: 'apikey',
+      password: 'not-a-real-secret',
+      maxConnections: 3,
+    })
+
+    expect(options.auth).toEqual({ user: 'apikey', pass: 'not-a-real-secret' })
+    expect(options.maxConnections).toBe(3)
+  })
+
+  it('names the missing setting rather than failing at the first send', () => {
+    // `env.ts` makes this unreachable through `mailer.ts`. It stays reachable — and legible —
+    // for anyone constructing the factory directly.
+    expect(() => createSmtpMailer()).toThrow(/SMTP_HOST is required/)
+  })
+
+  it('opens nothing when it is constructed', () => {
+    // The contract `mailer.ts` states: a mail server having a bad afternoon is a retried job,
+    // not an API that refuses to start. The pool is opened by the first send.
+    expect(createSmtpMailer({ host: 'mail.example.com' }).kind).toBe('smtp')
   })
 })
 

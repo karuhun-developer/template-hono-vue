@@ -167,8 +167,11 @@ const envSchema = z
      * anywhere can still invite somebody and read the link. Configuring a transport is
      * therefore a thing you do when you are ready, not a thing standing between you and the
      * first run.
+     *
+     * `smtp` is the one that leaves the process. It needs `SMTP_HOST` and nothing else in the
+     * common case, and the cross-field rule below refuses to boot without it.
      */
-    MAIL_DRIVER: z.enum(['log']).default('log'),
+    MAIL_DRIVER: z.enum(['log', 'smtp']).default('log'),
 
     /**
      * The envelope sender. Recorded on every row as it read at the time, so a message sent
@@ -189,6 +192,33 @@ const envSchema = z
      * The cross-field rule below keeps it honest.
      */
     CONSOLE_URL: z.url().default('http://localhost:7301'),
+
+    /**
+     * Where mail is handed over, when `MAIL_DRIVER=smtp`.
+     *
+     * Optional here and required by the cross-field rule below, the same shape as `REDIS_URL`:
+     * a driver that discovered the host was missing at its first send would report it as a
+     * job retrying, hours after the deploy that caused it.
+     */
+    SMTP_HOST: z.string().min(1).optional(),
+    /** 587 is submission-with-STARTTLS, which is what a relay offers unless it says otherwise. */
+    SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
+    /**
+     * Left unset, implicit TLS is inferred from the port — 465 yes, anything else no. Set it
+     * only for a relay that put SMTPS somewhere unusual. See `smtp.ts` for why guessing is
+     * safe: on 587 nodemailer still upgrades through `STARTTLS`.
+     */
+    SMTP_SECURE: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((value) => (value === undefined ? undefined : value === 'true')),
+    /**
+     * Both optional, and deliberately so: an internal relay that authenticates by IP is
+     * offered no credentials at all rather than an empty pair. `smtp.ts` omits the whole
+     * `auth` object when the user is unset.
+     */
+    SMTP_USER: z.string().min(1).optional(),
+    SMTP_PASSWORD: z.string().min(1).optional(),
 
     /**
      * The first account `make seed` creates. Read here rather than hard-coded in the
@@ -215,6 +245,15 @@ const envSchema = z
         path: ['REDIS_URL'],
         message:
           'is required when QUEUE_DRIVER=redis — write it as redis://localhost:7379. Without it nothing would fail until the first enqueue, which is a request, in production, at the worst moment.',
+      })
+    }
+
+    if (config.MAIL_DRIVER === 'smtp' && !config.SMTP_HOST) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SMTP_HOST'],
+        message:
+          'is required when MAIL_DRIVER=smtp — with no host there is nowhere to send. Without this rule the failure would surface as every invitation retrying three times and landing failed, which looks like a broken mail server rather than a missing setting.',
       })
     }
 

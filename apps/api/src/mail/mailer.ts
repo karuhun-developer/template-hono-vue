@@ -1,5 +1,6 @@
 import { env } from '#env'
 import { createLogMailer } from '#mail/driver/log'
+import { createSmtpMailer } from '#mail/driver/smtp'
 
 /**
  * The transport, from the caller's side — except that there is no caller.
@@ -55,6 +56,8 @@ function createMailerFromEnv(): MailDriver {
   switch (env.MAIL_DRIVER) {
     case 'log':
       return createLogMailer()
+    case 'smtp':
+      return createSmtpMailer()
   }
 }
 
