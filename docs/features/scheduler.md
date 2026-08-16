@@ -9,6 +9,7 @@ Cron, without the double fires. Six things run periodically, and no two replicas
 | Time arithmetic           | `apps/api/src/scheduler/cron.ts`          |
 | Row access                | `apps/api/src/scheduler/schedule.repo.ts` |
 | The `schedule_runs` table | `apps/api/src/db/schema/schedules.ts`     |
+| The console's endpoints   | `apps/api/src/modules/schedules/`         |
 
 ## What runs
 
@@ -107,6 +108,24 @@ There is deliberately **no duration**. `jobs.locked_at` is cleared when a job fi
 `schedule_runs_tick_key` is **partial on `manual = false`**, which is what keeps the two apart in both directions: pressing the button twice in the same second is allowed, and a manual run can never occupy the index slot the real tick was going to claim. A button that silently skipped a night's cleanup would be a strange thing to have added.
 
 Its dedupe key is prefixed `:manual` for the same reason, so it cannot collide with the tick for the same minute in the queue either.
+
+## Endpoints
+
+| Method | Path                   | Permission      |
+| ------ | ---------------------- | --------------- |
+| `GET`  | `/schedules`           | `schedule.read` |
+| `GET`  | `/schedules/:key/runs` | `schedule.read` |
+| `POST` | `/schedules/:key/run`  | `schedule.run`  |
+
+Both keys are **owner-only** — in the catalog, absent from `admin`. That is the whole of "visible only to the superadmin" here, and it is why the console's Operations group disappears entirely for an administrator.
+
+`GET /schedules` takes **no query at all**. Six rows of code is not something to page, sort or filter, and the console renders it with `mode="none"`. Each entry carries its `nextRunAt`, computed on that request and **never stored**: a stored next-run goes stale the moment somebody edits the expression, and the staleness is invisible — the page would keep confidently naming an instant nothing is going to fire at.
+
+There is no create, update, pause or delete. The registry is a file; the closest thing to a pause button is a deploy, which is the entire argument for keeping the expressions out of a table.
+
+A key that is not in the registry is a **404**, on all three routes — not an empty list, because "no runs yet" is an answer somebody would act on and this is a different thing entirely. The param is validated as a bounded string rather than an enum of the current keys, so the 400 for a malformed one does not hand back a list of every schedule that does exist.
+
+`POST /schedules/:key/run` is deliberately **not** gated on `SCHEDULER_ENABLED`. That setting decides whether the clock is watched; the button does not watch the clock. Its audit entry is the one write in this codebase made outside the transaction it belongs to, and `schedules.service.ts` says why: `fireManually` owns its transaction because the run row and the job have to commit together, and the entry records a button press whose effect has already, definitively, happened.
 
 ## Settings
 

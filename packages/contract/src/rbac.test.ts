@@ -74,6 +74,8 @@ describe('system roles', () => {
       'audit.read',
       'job.read',
       'job.manage',
+      'schedule.read',
+      'schedule.run',
     ]
 
     const admin = SYSTEM_ROLES.find((r) => r.key === 'admin')!
