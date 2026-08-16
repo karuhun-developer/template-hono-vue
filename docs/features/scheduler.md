@@ -128,6 +128,19 @@ A key that is not in the registry is a **404**, on all three routes — not an e
 
 `POST /schedules/:key/run` is deliberately **not** gated on `SCHEDULER_ENABLED`. That setting decides whether the clock is watched; the button does not watch the clock. Its audit entry is the one write in this codebase made outside the transaction it belongs to, and `schedules.service.ts` says why: `fireManually` owns its transaction because the run row and the job have to commit together, and the entry records a button press whose effect has already, definitively, happened.
 
+## The console page
+
+**Operations → Scheduled jobs** is the list above with a history drawer and one button. No pager, no sort and no filter — three controls over six rows is furniture, and there is no list query to send a `?sort=` to.
+
+Two things it says out loud that a table of rows alone would not:
+
+- **The timezone**, in the heading. A next-run time is meaningless without the zone the expression was read in, and the zone is a setting rather than the browser's.
+- **`SCHEDULER_ENABLED=false`**, as a note. Six schedules with six next-run times and no runs reads as a broken scheduler; it is usually a deliberate configuration, and the note is the difference between the two.
+
+The outcome badge reports what the _job_ came to, and `scheduleOutcome()` — the one pure decision on the page, and the one thing unit-tested there — reads a missing job as **"Enqueued"** rather than as nothing having happened. Under `QUEUE_DRIVER=redis` the queue keeps no row to join to unless the job failed for good, so the absence is a property of the driver, not evidence about the tick.
+
+A manual run is badged as one in the history. A run somebody started by hand does not tell you the clock is working, which is exactly why the unique tick index excludes it.
+
 ## Settings
 
 | Variable                    | Default | Means                                                   |

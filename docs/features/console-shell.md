@@ -44,20 +44,21 @@ Pages stay in `pages/` because the router points at them, and they stay short. A
 
 ## Routes
 
-| Path                     | Page                 | `meta`                     |
-| ------------------------ | -------------------- | -------------------------- |
-| `/login`                 | Sign in              | `public`                   |
-| `/invitation/:token`     | Accept an invitation | `public`                   |
-| `/forgot-password`       | Ask for a reset link | `public`                   |
-| `/reset-password/:token` | Set a new password   | `public`                   |
-| `/forbidden`             | Access denied        | `public`                   |
-| `/`                      | Overview             | —                          |
-| `/users`                 | Users                | `permission: 'user.read'`  |
-| `/roles`                 | Roles                | `permission: 'role.read'`  |
-| `/audit-log`             | Audit log            | `permission: 'audit.read'` |
-| `/jobs`                  | Jobs                 | `permission: 'job.read'`   |
-| `/mail-log`              | Mail log             | `permission: 'mail.read'`  |
-| `/:pathMatch(.*)*`       | Not found            | `public`                   |
+| Path                     | Page                 | `meta`                        |
+| ------------------------ | -------------------- | ----------------------------- |
+| `/login`                 | Sign in              | `public`                      |
+| `/invitation/:token`     | Accept an invitation | `public`                      |
+| `/forgot-password`       | Ask for a reset link | `public`                      |
+| `/reset-password/:token` | Set a new password   | `public`                      |
+| `/forbidden`             | Access denied        | `public`                      |
+| `/`                      | Overview             | —                             |
+| `/users`                 | Users                | `permission: 'user.read'`     |
+| `/roles`                 | Roles                | `permission: 'role.read'`     |
+| `/audit-log`             | Audit log            | `permission: 'audit.read'`    |
+| `/jobs`                  | Jobs                 | `permission: 'job.read'`      |
+| `/mail-log`              | Mail log             | `permission: 'mail.read'`     |
+| `/schedules`             | Scheduled jobs       | `permission: 'schedule.read'` |
+| `/:pathMatch(.*)*`       | Not found            | `public`                      |
 
 **The default is "signed in required".** `meta.public` is the exception, and it is granted only to the sign-in page, the three credential pages and the two error pages. A new route that forgets to say anything is protected, which is the right way round for a default to fail.
 

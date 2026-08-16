@@ -89,6 +89,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Mail log', permission: 'mail.read' },
       },
       {
+        path: 'schedules',
+        name: 'schedules',
+        component: () => import('@/pages/SchedulesPage.vue'),
+        meta: { title: 'Scheduled jobs', permission: 'schedule.read' },
+      },
+      {
         path: 'audit-log',
         name: 'audit-log',
         component: () => import('@/pages/AuditLogPage.vue'),
