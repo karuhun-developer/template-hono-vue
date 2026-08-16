@@ -16,6 +16,20 @@ const TEST_ENV = {
   CORS_ORIGINS: 'http://localhost:7301',
   LOG_LEVEL: 'silent',
   LOG_PRETTY: 'false',
+  // Handlers run inline and **rethrow**, so a suite asserting an endpoint's effect fails
+  // when the job behind it throws. The database driver is constructed directly by the
+  // driver suite, which is the only place a poll loop belongs in a test.
+  QUEUE_DRIVER: 'sync',
+  // Not because anything defaults to Redis — nothing does — but because the redis driver
+  // suite must fail rather than skip when there is no server. `make up-redis` locally,
+  // a service container in CI, both on 7379.
+  REDIS_URL: 'redis://localhost:7379',
+  // The default anyway, and pinned so it stays true whatever a developer's `.env` says:
+  // a suite that quietly started talking to a real SMTP server would send real email.
+  MAIL_DRIVER: 'log',
+  // Every rendered link is built from this, so an assertion about a link is only stable
+  // if the origin is. It matches CORS_ORIGINS above, which the cross-field rule requires.
+  CONSOLE_URL: 'http://localhost:7301',
 } as const
 
 Object.assign(process.env, TEST_ENV)

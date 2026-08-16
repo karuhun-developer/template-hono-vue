@@ -12,6 +12,7 @@ import {
   createUser,
   emailFor,
   ensureCatalog,
+  lastMailTo,
   login,
   request,
   sessionCookie,
@@ -30,8 +31,20 @@ const TAG = 'auth'
 const OWNER = emailFor(TAG, 'owner')
 const DISABLED = emailFor(TAG, 'disabled')
 const INVITED = emailFor(TAG, 'invited')
+/** Never accepts its invitation, so the reset tests still have an `invited` account to ask about. */
+const PENDING = emailFor(TAG, 'pending')
+/** Asks for a reset through the public form. */
+const FORGETFUL = emailFor(TAG, 'forgetful')
+/** Handed a reset token directly, because the public endpoint deliberately returns none. */
+const RESETTER = emailFor(TAG, 'resetter')
+/** Holds a token that timed out an hour ago. */
+const STALE = emailFor(TAG, 'stale')
+
+const RESETTER_NEW_PASSWORD = 'a-brand-new-password'
 
 let inviteToken: string
+let resetToken: string
+let staleToken: string
 
 beforeAll(async () => {
   await cleanFixtures(TAG)
@@ -51,7 +64,47 @@ beforeAll(async () => {
       inviteExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
     })
     .where(eq(users.id, invitedId))
+
+  await createUser(PENDING, { name: 'Still Waiting', status: 'invited' })
+  await createUser(FORGETFUL, { name: 'Forgetful' })
+
+  // Planted rather than requested: `POST /auth/forgot-password` returns no token by design,
+  // so the only way a test can hold one is to write it the way the repository would.
+  const resetterId = await createUser(RESETTER, { name: 'Reset Me' })
+  const reset = issueToken('reset')
+  resetToken = reset.token
+  await db
+    .update(users)
+    .set({
+      passwordResetTokenHash: reset.tokenHash,
+      passwordResetExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    })
+    .where(eq(users.id, resetterId))
+
+  const staleId = await createUser(STALE, { name: 'Too Late' })
+  const stale = issueToken('reset')
+  staleToken = stale.token
+  await db
+    .update(users)
+    .set({
+      passwordResetTokenHash: stale.tokenHash,
+      passwordResetExpiresAt: new Date(Date.now() - 60 * 60 * 1000),
+    })
+    .where(eq(users.id, staleId))
 })
+
+/** The two columns the whole flow turns on, read straight from the row. */
+async function resetColumns(
+  email: string,
+): Promise<{ hash: string | null; expiresAt: Date | null }> {
+  const [row] = await db
+    .select({ hash: users.passwordResetTokenHash, expiresAt: users.passwordResetExpiresAt })
+    .from(users)
+    .where(eq(users.email, email))
+
+  if (!row) throw new Error(`no user row for ${email}`)
+  return row
+}
 
 afterAll(async () => {
   await cleanFixtures(TAG)
@@ -222,6 +275,196 @@ describe('invitations', () => {
     const res = await request(app, '/auth/invitation/accept', {
       method: 'POST',
       body: { token: issueToken('invite').token, password: 'short' },
+    })
+
+    expect(res.status).toBe(400)
+  })
+})
+
+/**
+ * The rule this endpoint exists to keep is that **nothing about the outcome escapes**, so
+ * almost every assertion here is on the `users` row rather than on the response. Asserting
+ * on the body could only ever prove that two identical answers are identical.
+ */
+describe('POST /auth/forgot-password', () => {
+  it('issues a token for a live account', async () => {
+    const res = await request(app, '/auth/forgot-password', {
+      method: 'POST',
+      body: { email: FORGETFUL },
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect((await resetColumns(FORGETFUL)).hash).not.toBeNull()
+  })
+
+  /**
+   * The link goes to the person, and only to the person. The response cannot carry it —
+   * that would hand it to whoever asked — so the mail is the entire channel, and this is
+   * the assertion that it exists.
+   */
+  it('sends the link by email, and stores that copy with the token redacted', async () => {
+    const message = await lastMailTo(FORGETFUL)
+
+    expect(message?.template).toBe('password-reset')
+    expect(message?.toEmail).toBe(FORGETFUL)
+    // The stored body is what the Mail log page shows. A live reset link in it would make
+    // `mail.read` a way of taking accounts over.
+    expect(message?.textBody).toContain('[redacted]')
+    expect(message?.textBody).not.toMatch(/rst_[\w-]+/)
+  })
+
+  it('answers an unknown address exactly as it answered a real one', async () => {
+    const real = await request(app, '/auth/forgot-password', {
+      method: 'POST',
+      body: { email: FORGETFUL },
+    })
+    const ghost = await request(app, '/auth/forgot-password', {
+      method: 'POST',
+      body: { email: emailFor(TAG, 'nobody') },
+    })
+
+    expect(ghost.status).toBe(real.status)
+    expect(await ghost.json()).toEqual(await real.json())
+  })
+
+  it('writes no token for an invited account, which has never had a password to forget', async () => {
+    const res = await request(app, '/auth/forgot-password', {
+      method: 'POST',
+      body: { email: PENDING },
+    })
+
+    expect(res.status).toBe(200)
+    expect((await resetColumns(PENDING)).hash).toBeNull()
+    // No token, and therefore no email either — the mail is queued in the same transaction
+    // that issued one, so there is no way to have the second without the first.
+    expect(await lastMailTo(PENDING)).toBeNull()
+  })
+
+  /** Otherwise "switch this person off" is undone by a form anybody can post to. */
+  it('writes no token for a disabled account', async () => {
+    const res = await request(app, '/auth/forgot-password', {
+      method: 'POST',
+      body: { email: DISABLED },
+    })
+
+    expect(res.status).toBe(200)
+    expect((await resetColumns(DISABLED)).hash).toBeNull()
+    expect(await lastMailTo(DISABLED)).toBeNull()
+  })
+
+  /**
+   * A second ask inside the cooldown leaves the first link alone and still answers `200`.
+   * If it rotated the token, the mail already on its way would be dead on arrival; if it
+   * answered differently, the cooldown itself would confirm the address exists.
+   */
+  it('leaves the outstanding token alone inside the cooldown, and says nothing about it', async () => {
+    const before = await resetColumns(FORGETFUL)
+
+    const res = await request(app, '/auth/forgot-password', {
+      method: 'POST',
+      body: { email: FORGETFUL },
+    })
+
+    expect(res.status).toBe(200)
+    expect((await resetColumns(FORGETFUL)).hash).toBe(before.hash)
+  })
+
+  it('rejects something that is not an email address', async () => {
+    const res = await request(app, '/auth/forgot-password', {
+      method: 'POST',
+      body: { email: 'not-an-address' },
+    })
+
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('password resets', () => {
+  it('previews the account a link belongs to', async () => {
+    const res = await request(app, `/auth/password-reset/${resetToken}`)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ reset: { email: RESETTER } })
+  })
+
+  it('refuses a token that does not exist', async () => {
+    const res = await request(app, `/auth/password-reset/${issueToken('reset').token}`)
+
+    expect(res.status).toBe(404)
+  })
+
+  /**
+   * Rubbish is rejected by `looksLikeToken()` before it becomes a query — this endpoint is
+   * public, and an automated scanner should not be worth a round trip each.
+   */
+  it('refuses a malformed token', async () => {
+    const res = await request(app, '/auth/password-reset/not-a-token')
+
+    expect(res.status).toBe(404)
+  })
+
+  /** An invitation link offered to the reset door: right shape, wrong family. */
+  it('refuses an invitation token', async () => {
+    const res = await request(app, `/auth/password-reset/${issueToken('invite').token}`)
+
+    expect(res.status).toBe(404)
+  })
+
+  it('sets the new password, kills every other session, and signs the person in', async () => {
+    const oldCookie = await login(app, RESETTER)
+    expect((await request(app, '/auth/me', { cookie: oldCookie })).status).toBe(200)
+
+    const res = await request(app, '/auth/reset-password', {
+      method: 'POST',
+      body: { token: resetToken, password: RESETTER_NEW_PASSWORD },
+    })
+
+    expect(res.status).toBe(200)
+    expect(sessionCookie(res)).toBeTruthy()
+
+    // "I forgot my password" and "somebody else has my password" arrive through the same
+    // door, and only one of them is safe to leave signed in elsewhere.
+    expect((await request(app, '/auth/me', { cookie: oldCookie })).status).toBe(401)
+
+    expect((await resetColumns(RESETTER)).hash).toBeNull()
+  })
+
+  it('leaves the old password dead and the new one working', async () => {
+    const old = await request(app, '/auth/login', {
+      method: 'POST',
+      body: { email: RESETTER, password: TEST_PASSWORD },
+    })
+
+    expect(old.status).toBe(401)
+    await expect(login(app, RESETTER, RESETTER_NEW_PASSWORD)).resolves.toBeTruthy()
+  })
+
+  /** The hash is in the `WHERE`, so a double-clicked button cannot apply twice. */
+  it('cannot be used a second time', async () => {
+    const res = await request(app, '/auth/reset-password', {
+      method: 'POST',
+      body: { token: resetToken, password: 'yet-another-password' },
+    })
+
+    expect(res.status).toBe(404)
+  })
+
+  it('refuses a token that has expired', async () => {
+    const res = await request(app, '/auth/reset-password', {
+      method: 'POST',
+      body: { token: staleToken, password: 'a-password-too-late' },
+    })
+
+    expect(res.status).toBe(404)
+    // Still there, untouched: expiry is refused by the query, not by clearing the row.
+    expect((await resetColumns(STALE)).hash).not.toBeNull()
+  })
+
+  it('rejects a password below the minimum length', async () => {
+    const res = await request(app, '/auth/reset-password', {
+      method: 'POST',
+      body: { token: issueToken('reset').token, password: 'short' },
     })
 
     expect(res.status).toBe(400)

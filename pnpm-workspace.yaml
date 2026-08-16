@@ -5,6 +5,11 @@ packages:
 # esbuild needs its postinstall to download the platform binary (used by Vite & Vitest).
 # vue-demi (transitive from reka-ui) uses postinstall to pick the Vue 2 vs Vue 3
 # entrypoint; without it the import resolves to the wrong shim.
+#
+# msgpackr-extract (transitive from bullmq) is a *native* accelerator for msgpackr, and
+# msgpackr falls back to its JavaScript encoder without it. Off: a template must install on
+# a machine with no toolchain, and the thing being sped up is serialising a job payload.
 allowBuilds:
   esbuild: true
+  msgpackr-extract: false
   vue-demi: true

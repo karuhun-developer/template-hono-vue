@@ -38,6 +38,20 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # The redis driver suite must never skip because Redis is absent — a suite that skips
+      # when its dependency is missing is a suite that passes when the feature is broken.
+      # Published on 7379 for the same reason as Postgres above: no CI-only branch in
+      # `apps/api/vitest.config.ts`.
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 7379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v5
 

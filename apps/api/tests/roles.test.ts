@@ -1,3 +1,4 @@
+import { PERMISSION_GROUPS } from '@app/contract'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { app } from '#app'
@@ -123,7 +124,10 @@ describe('GET /roles/permissions', () => {
     const res = await request(app, '/roles/permissions', { cookie: adminCookie })
     const body = (await res.json()) as { groups: { key: string }[]; granted: string[] }
 
-    expect(body.groups.map((group) => group.key)).toEqual(['users', 'roles', 'audit'])
+    // Every group, in catalog order — the matrix renders them top to bottom as they arrive.
+    // Compared against the catalog rather than a literal list, so adding a permission group
+    // is not a test to edit; what matters is that none of them goes missing on the way out.
+    expect(body.groups.map((group) => group.key)).toEqual([...PERMISSION_GROUPS])
     // What decides which ticks the matrix renders as editable.
     expect(body.granted).not.toContain('audit.read')
     expect(body.granted).toContain('role.manage')

@@ -24,6 +24,12 @@ export const logger: Logger = pino({
       '*.tokenHash',
       '*.apiKey',
       '*.secret',
+      // A link is a credential too. An invitation or reset URL sitting in a log aggregator
+      // is a live way into somebody's account, and it does not look like one at a glance.
+      '*.inviteToken',
+      '*.resetToken',
+      '*.inviteUrl',
+      '*.resetUrl',
     ],
     censor: '[redacted]',
   },

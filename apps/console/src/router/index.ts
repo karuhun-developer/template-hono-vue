@@ -31,6 +31,19 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true, title: 'Accept your invitation' },
   },
   {
+    /** Public for the same reason, and it deliberately tells nobody whether an address exists. */
+    path: '/forgot-password',
+    name: 'forgot-password',
+    component: () => import('@/pages/ForgotPasswordPage.vue'),
+    meta: { public: true, title: 'Forgot your password' },
+  },
+  {
+    path: '/reset-password/:token',
+    name: 'reset-password',
+    component: () => import('@/pages/ResetPasswordPage.vue'),
+    meta: { public: true, title: 'Set a new password' },
+  },
+  {
     path: FORBIDDEN_PATH,
     name: 'forbidden',
     component: () => import('@/pages/ForbiddenPage.vue'),

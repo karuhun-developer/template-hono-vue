@@ -14,3 +14,32 @@ services:
       - log_min_duration_statement=200
       - -c
       - log_line_prefix=%m [%p] %q%u@%d
+
+  redis:
+    profiles: ['redis']
+    ports:
+      # 7379 rather than 6379, for the same reason Postgres is on 7332: a development
+      # machine usually already has one running.
+      - '${REDIS_PORT:-7379}:6379'
+
+  # A mail server that accepts everything and delivers nothing, so MAIL_DRIVER=smtp is
+  # exercisable without a provider account and without anything reaching a real inbox.
+  # Development only, deliberately: it is defined in this overlay and not in the base file,
+  # so no production stack can grow one by accident.
+  mailpit:
+    profiles: ['mail']
+    image: axllent/mailpit:v1.28
+    restart: unless-stopped
+    environment:
+      # Keep the messages in memory only. A development mailbox that survives a restart is a
+      # mailbox somebody eventually reads a stale link out of.
+      MP_MAX_MESSAGES: 500
+    ports:
+      - '${MAILPIT_SMTP_PORT:-1025}:1025'
+      - '${MAILPIT_UI_PORT:-8025}:8025'
+    healthcheck:
+      # The image ships its own probe — there is no shell in it to write one with.
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 5s
+      timeout: 3s
+      retries: 10

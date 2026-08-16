@@ -24,6 +24,14 @@ export const TOKEN_PREFIX = {
   session: 'sess',
   /** User invitations. Short-lived and single-use — see `modules/users`. */
   invite: 'inv',
+  /**
+   * Password resets. Shorter-lived than an invitation and single-use as well.
+   *
+   * Its own prefix rather than reuse of `inv`, so that `looksLikeToken()` refuses an
+   * invitation link offered to the reset endpoint before it becomes a query — and so that
+   * one found in a log says which flow it came from.
+   */
+  reset: 'rst',
 } as const
 
 export type TokenKind = keyof typeof TOKEN_PREFIX

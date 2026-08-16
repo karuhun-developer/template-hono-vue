@@ -14,6 +14,8 @@ Start with [`architecture.md`](architecture.md). Everything else assumes it.
 | [`features/users.md`](features/users.md)                                                           | Changing the user lifecycle                                  |
 | [`features/audit-log.md`](features/audit-log.md)                                                   | Recording an action, or reading the trail                    |
 | [`features/database.md`](features/database.md)                                                     | Adding a table or a column, and generating the migration     |
+| [`features/queue.md`](features/queue.md)                                                           | Moving work off a request, or reading the Jobs page          |
+| [`features/mail.md`](features/mail.md)                                                             | Sending an email, or adding a template                       |
 | [`features/console-shell.md`](features/console-shell.md)                                           | Adding a page or a navigation item                           |
 | [`features/data-table.md`](features/data-table.md)                                                 | Building any list screen                                     |
 | [`features/theming.md`](features/theming.md)                                                       | Adding a colour, or changing the brand                       |

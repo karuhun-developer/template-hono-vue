@@ -2,7 +2,16 @@ import type { PermissionKey } from '@app/contract'
 import { eq, like, sql } from 'drizzle-orm'
 
 import { db } from '#db/client'
-import { auditLogs, rolePermissions, roles, userRoles, users, type UserStatus } from '#db/schema'
+import {
+  auditLogs,
+  mailMessages,
+  rolePermissions,
+  roles,
+  userRoles,
+  users,
+  type MailMessage,
+  type UserStatus,
+} from '#db/schema'
 import { env } from '#env'
 import { hashPassword } from '#lib/password'
 import { syncPermissionCatalog } from '#modules/rbac/rbac.service'
@@ -42,6 +51,27 @@ export async function cleanFixtures(tag: string): Promise<void> {
   await db.delete(roles).where(like(roles.key, `${tag}-%`))
   await db.delete(auditLogs).where(like(auditLogs.actorLabel, `%@${tag}.test`))
   await db.delete(auditLogs).where(like(auditLogs.subjectLabel, `%@${tag}.test`))
+  // Mail is addressed to the same tagged addresses, and a message outlives its recipient
+  // on purpose — nothing cascades it away.
+  await db.delete(mailMessages).where(like(mailMessages.toEmail, `%@${tag}.test`))
+}
+
+/**
+ * The newest message sent to an address, or `null`.
+ *
+ * Reads the whole row, `payload` included — which is the one place in the repository
+ * outside the send job that does. A suite asserting that a token is **not** in the stored
+ * body has to be able to see what the body actually is.
+ */
+export async function lastMailTo(email: string): Promise<MailMessage | null> {
+  const [row] = await db
+    .select()
+    .from(mailMessages)
+    .where(eq(mailMessages.toEmail, email))
+    .orderBy(sql`${mailMessages.createdAt} desc`)
+    .limit(1)
+
+  return row ?? null
 }
 
 /** The permission catalog has to exist before any role can reference a key. */

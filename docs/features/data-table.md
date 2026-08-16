@@ -11,7 +11,46 @@ Every list in the console — users, roles, the audit trail — is the same comp
 | Loading rows        | `packages/ui/src/components/data-table/DataTableSkeleton.vue`      |
 | Column visibility   | `packages/ui/src/components/data-table/DataTableViewOptions.vue`   |
 | Faceted filter      | `packages/ui/src/components/data-table/DataTableFacetedFilter.vue` |
-| A page using it     | `apps/console/src/pages/UsersPage.vue`                             |
+| List state          | `apps/console/src/composables/useResourceList.ts`                  |
+| A table using it    | `apps/console/src/features/users/UsersTable.vue`                   |
+| The page around it  | `apps/console/src/pages/UsersPage.vue`                             |
+
+## Four files, not one
+
+A list screen is split the same way every time, and no part of it knows what the others do:
+
+| File                                   | Owns                                                     |
+| -------------------------------------- | -------------------------------------------------------- |
+| `features/<module>/api.ts`             | the calls and the derived types                          |
+| `features/<module>/use<Module>List.ts` | `useResourceList` plus this endpoint's filters           |
+| `features/<module>/<Module>Table.vue`  | columns, cells, toolbar, actions — **renders and emits** |
+| `pages/<Module>Page.vue`               | heading, alert, dialogs, and what a click actually does  |
+
+The table decides nothing: every action leaves through an event, so a page that wants the same list with a different set of buttons around it can have one. And the permission checks in it hide items to keep people from walking into a 403 — they do not prevent one. `requirePermission()` in the API is what refuses.
+
+## The state behind it
+
+`useResourceList` owns what every server-paged list needs and what each of them would otherwise re-implement slightly differently:
+
+```ts
+const list = useResourceList<UserSummary, UserSortKey>({
+  sortable: USER_SORTABLE, // the API's `sort` enum, `as const`
+  defaultSort: { key: 'name', order: 'asc' },
+  filters: { statuses, roleIds }, // faceted filters, by name
+  fetch: (query) => fetchUsers(query, { statuses: statuses.value, roleIds: roleIds.value }),
+})
+```
+
+Four of those behaviours are each one watcher away from being wrong in a way nobody notices until the list is long enough to page:
+
+- **The search box is debounced 300 ms.** Typing "anna" otherwise fires four requests for three answers nobody wanted.
+- **Any narrowing resets the page.** Page 7 of the old list is almost never a page of the new one, and landing on an empty page reads as "no results".
+- **One coalesced watcher.** Narrowing a filter _and_ resetting the page is a single request; a watcher per control would make it two, the first for a page nobody is looking at.
+- **A stale answer is dropped.** A monotonic ticket plus an `AbortSignal`, because two requests 400 ms apart can still come back in the wrong order — and then the list shows results for "ann" while the box says "anna".
+
+A `sort` the API's enum would refuse falls back to the default instead of 400ing the page: a stale `localStorage` column preference should not produce an error screen.
+
+**Cursor-paged lists do not use it.** The audit log pages by `before=<id>`, which is different state with different rules, and an options bag with two mutually exclusive halves would serve neither.
 
 ## The shape of a list page
 
@@ -56,15 +95,15 @@ Without a `#cell:` slot a cell prints the value. Strings, numbers and booleans r
 
 ## It renders, it does not compute
 
-Sorting, filtering and paging are all server-side, so the component holds none of that state. It reports the sort you asked for and the page you clicked; the page component turns them into query parameters and asks again.
+Sorting, filtering and paging are all server-side, so the component holds none of that state. It reports the sort you asked for and the page you clicked; `useResourceList` turns them into query parameters and asks again.
 
 ```ts
-watch([q, statuses, sort, page, perPage], () => void load())
+watch([q, ...filterRefs, sort, page, perPage], () => void reload())
 ```
 
 The one thing the table does own is **column visibility**, because that is a preference about this screen on this machine and no API needs to hear about it. With `storage-key` it is remembered in `localStorage` under `data-table:<key>`.
 
-The table also resets `page` to 1 whenever the sort changes. Re-sorting and staying on page 7 shows a page of a list you have not seen the start of — every table wants that, so it happens once here instead of in each page. Resetting the page when a **filter** changes is the page's job, since only it knows what its filters are.
+The table also resets `page` to 1 whenever the sort changes. Re-sorting and staying on page 7 shows a page of a list you have not seen the start of — every table wants that, so it happens once here instead of in each page. Resetting the page when a **filter** changes is `useResourceList`'s job, because only it knows what the filters are.
 
 ## Three pagers, on purpose
 
@@ -119,7 +158,8 @@ The trade is real and worth stating: there is no built-in grouping, no virtualis
 
 ## Conventions
 
-- A sortable column's `key` is a key the API's `sort` enum accepts. It is a whitelist there, not a column name — see `SORTABLE` in `apps/api/src/modules/users/users.repo.ts`.
+- A sortable column's `key` is a key the API's `sort` enum accepts. It is a whitelist there, not a column name — see `SORTABLE` in `apps/api/src/modules/users/users.repo.ts`, mirrored as `USER_SORTABLE` in the feature's `api.ts`.
+- A list page's state is `useResourceList`. A page re-implementing the debounce is a page that will get one of the four behaviours above subtly wrong.
 - Say why a list is empty. `empty="No users match that."` beats "No data".
 - Colours come from tokens. A status column full of `bg-green-500` is exactly where dark mode breaks — see [`theming.md`](theming.md).
 - Give every table a `storage-key` once it has more than four columns.

@@ -25,5 +25,18 @@ services:
       retries: 10
       start_period: 10s
 
+  # Behind a profile, so `make up` stays a one-container stack: the default drivers are
+  # `database` for the queue and `memory` for the cache, and neither needs this. `make
+  # up-redis` starts it for whoever has switched a driver over.
+  redis:
+    image: redis:8-alpine
+    profiles: ['redis']
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   pgdata:

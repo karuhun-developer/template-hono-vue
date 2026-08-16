@@ -40,6 +40,21 @@ export const users = pgTable(
     inviteTokenHash: text('invite_token_hash'),
     inviteExpiresAt: timestamptz('invite_expires_at'),
 
+    /**
+     * A password reset in flight, stored the same way — the SHA-256 of the `rst_…` token.
+     *
+     * Two columns rather than a `password_resets` table for the reason given just above: a
+     * user may have **one** live reset at a time, so asking for a second has to kill the
+     * first. As a column that is structurally true; as a table it becomes a rule that every
+     * query has to remember, and the one that forgets leaves two working links behind.
+     *
+     * Kept separate from the invitation pair rather than reusing it. They mean different
+     * things — one account has never had a password, the other has forgotten it — and a
+     * shared column would let an invitation link be traded for a reset.
+     */
+    passwordResetTokenHash: text('password_reset_token_hash'),
+    passwordResetExpiresAt: timestamptz('password_reset_expires_at'),
+
     status: userStatus('status').notNull().default('invited'),
     lastLoginAt: timestamptz('last_login_at'),
 
@@ -61,6 +76,11 @@ export const users = pgTable(
     uniqueIndex('users_invite_token_key')
       .on(table.inviteTokenHash)
       .where(sql`${table.inviteTokenHash} IS NOT NULL`),
+
+    /** Same shape, same reasons: one live reset per account, found by its hash alone. */
+    uniqueIndex('users_password_reset_token_key')
+      .on(table.passwordResetTokenHash)
+      .where(sql`${table.passwordResetTokenHash} IS NOT NULL`),
   ],
 )
 

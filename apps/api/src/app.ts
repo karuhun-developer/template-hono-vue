@@ -9,6 +9,7 @@ import { sessionContext } from '#middleware/session'
 import { auditRoutes } from '#modules/audit/audit.routes'
 import { authRoutes } from '#modules/auth/auth.routes'
 import { healthRoutes } from '#modules/health/health.routes'
+import { jobRoutes } from '#modules/jobs/jobs.routes'
 import { roleRoutes } from '#modules/roles/roles.routes'
 import { userRoutes } from '#modules/users/users.routes'
 
@@ -56,5 +57,6 @@ export const app = base
   .route('/users', userRoutes)
   .route('/roles', roleRoutes)
   .route('/audit-logs', auditRoutes)
+  .route('/jobs', jobRoutes)
 
 export type AppType = typeof app

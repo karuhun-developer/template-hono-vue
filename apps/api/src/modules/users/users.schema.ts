@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { repeatable } from '#lib/query'
-import { email } from '#modules/auth/auth.schema'
+import { email, newPassword } from '#modules/auth/auth.schema'
 
 /**
  * The shape of user management requests.
@@ -30,6 +30,18 @@ export const inviteUserBody = z.object({ email, name, roleIds })
 
 export type InviteUserBody = z.infer<typeof inviteUserBody>
 
+/**
+ * Creating an account outright, with a password chosen by whoever creates it.
+ *
+ * `password` is `newPassword` from the auth schema rather than a rule of its own. There is
+ * one answer in this codebase to "what counts as an acceptable password", and a second
+ * copy of it here is the copy that would keep saying six characters after the first was
+ * raised to twelve.
+ */
+export const createUserBody = z.object({ email, name, password: newPassword, roleIds })
+
+export type CreateUserBody = z.infer<typeof createUserBody>
+
 export const updateUserBody = z
   .object({
     name: name.optional(),
@@ -55,6 +67,18 @@ export const listUsersQuery = z.object({
   q: z.string().trim().max(120).optional(),
   /** Everyone holding any of these roles. Exact match on the id — role names repeat. */
   roleId: repeatable(uuid).optional(),
+
+  /**
+   * Show soft-deleted accounts too.
+   *
+   * An enum of two strings rather than `z.coerce.boolean()`, which reads the string
+   * `"false"` as `true` — every non-empty string is truthy — and would turn "hide the
+   * deleted rows" into "show them" for any client that spells the default out.
+   */
+  includeDeleted: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 
   /** Coerced because query strings are text; capped for the reason given on `perPage`. */
   page: z.coerce.number().int().min(1).default(1),

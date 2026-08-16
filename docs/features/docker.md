@@ -90,41 +90,51 @@ Three things to get right whatever you build:
 - **`GET /health/ready` is your readiness probe** — it checks the database. `GET /health` is liveness and touches nothing.
 - **The frontends are static files.** `pnpm --filter @app/console build` produces `dist/`; serve it from nginx, a CDN, or anything else. It does not need Node at runtime.
 
-## Adding Redis
+## Redis
 
-Nothing in this template needs it — auth and RBAC involve no queue, cache or pub/sub. When you do:
+Nothing in the default configuration needs it — the queue is Postgres and the cache is
+in-process. It ships behind a compose profile, so `make up` stays a one-container stack:
 
-```yaml
-# docker-compose.yml
-services:
-  redis:
-    image: redis:8-alpine
-    command: ['redis-server', '--appendonly', 'yes']
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-volumes:
-  redisdata:
+```bash
+make up-redis   # Postgres 7332 · Redis 7379
 ```
 
-```yaml
-# docker-compose.dev.yml
-services:
-  redis:
-    ports:
-      - '${REDIS_PORT:-7379}:6379'
+Two things about that service are deliberate. It has **no volume and no persistence**
+(`--save '' --appendonly no`): a development Redis holding a job queue across restarts is a
+source of jobs from a schema three branches ago. And the port is **7379**, for the same
+reason Postgres is on 7332 — a development machine usually already has one on the default.
+
+Point a subsystem at it with `REDIS_URL` plus the driver setting that wants it
+(`QUEUE_DRIVER=redis`). The API refuses to boot if one is set without the other; an
+environment variable that is not validated in `apps/api/src/env.ts` is one that fails three
+hours into a request instead of in the first second of boot.
+
+## Mailpit
+
+A mail server that accepts everything and delivers nothing, so `MAIL_DRIVER=smtp` is
+exercisable without a provider account and without anything reaching a real inbox:
+
+```bash
+make up-mail    # SMTP on 1025 · inbox on http://localhost:8025
 ```
 
-Then add `REDIS_URL` to `.env.example` and to the schema in `apps/api/src/env.ts` — an environment variable that is not validated there is one that fails three hours into a request instead of in the first second of boot.
+```dotenv
+MAIL_DRIVER=smtp
+SMTP_HOST=localhost
+SMTP_PORT=1025
+```
+
+It is the **one service defined only in the dev overlay**, and that is the point: a fake mail
+server is not a thing a production stack should be able to grow by accident, and unlike
+Postgres and Redis there is no production counterpart of it to configure. Messages are kept
+in memory only — a development mailbox that survives a restart is a mailbox somebody
+eventually reads a stale link out of.
+
+Under the default `MAIL_DRIVER=log` none of this is needed; see [Mail](mail.md).
 
 ## Conventions
 
-- New services go in `docker-compose.yml`; **ports go only in the dev overlay.**
+- New services go in `docker-compose.yml`; **ports go only in the dev overlay.** Mailpit is the documented exception, and the section above says why.
 - Every service gets a healthcheck. `--wait` is only as good as the checks behind it.
 - Every new setting gets an entry in `.env.example`, under a `# ===` header with a line saying what it does.
 - Never put a secret in a compose file. `.env` is git-ignored; `.env.example` holds placeholders.

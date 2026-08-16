@@ -26,6 +26,8 @@ export type UserRow = {
   status: UserStatus
   lastLoginAt: Date | null
   inviteExpiresAt: Date | null
+  /** Non-null means soft-deleted. Selected so the console can render the row as gone. */
+  deletedAt: Date | null
   createdAt: Date
 }
 
@@ -38,6 +40,7 @@ const userColumns = {
   status: users.status,
   lastLoginAt: users.lastLoginAt,
   inviteExpiresAt: users.inviteExpiresAt,
+  deletedAt: users.deletedAt,
   createdAt: users.createdAt,
 } as const
 
@@ -62,6 +65,8 @@ export type ListUsersFilter = {
   q?: string | undefined
   /** Anyone holding at least one of these roles. */
   roleId?: readonly string[] | undefined
+  /** Off by default: a deleted person is gone unless somebody explicitly asks for them. */
+  includeDeleted?: boolean | undefined
   page: number
   perPage: number
   sort: ListUsersSort
@@ -75,7 +80,8 @@ export type ListUsersPage = {
 }
 
 export async function listUsers(filter: ListUsersFilter): Promise<ListUsersPage> {
-  const where: SQL[] = [isNull(users.deletedAt)]
+  const where: SQL[] = []
+  if (!filter.includeDeleted) where.push(isNull(users.deletedAt))
   if (filter.status?.length) where.push(inArray(users.status, [...filter.status]))
   if (filter.q) {
     const needle = `%${escapeLike(filter.q)}%`
@@ -118,12 +124,20 @@ export async function listUsers(filter: ListUsersFilter): Promise<ListUsersPage>
   return { rows: await attachRoles(db, rows), total: counted?.value ?? 0 }
 }
 
-export async function findUser(handle: DatabaseHandle, id: string): Promise<UserWithRoles | null> {
-  const [row] = await handle
-    .select(userColumns)
-    .from(users)
-    .where(and(eq(users.id, id), isNull(users.deletedAt)))
-    .limit(1)
+/**
+ * One user by id. Soft-deleted rows are invisible unless asked for by name — the endpoints
+ * that restore and re-delete need to see them, and nothing else should.
+ */
+export async function findUser(
+  handle: DatabaseHandle,
+  id: string,
+  options: { includeDeleted?: boolean } = {},
+): Promise<UserWithRoles | null> {
+  const where = options.includeDeleted
+    ? eq(users.id, id)
+    : and(eq(users.id, id), isNull(users.deletedAt))
+
+  const [row] = await handle.select(userColumns).from(users).where(where).limit(1)
 
   if (!row) return null
 
@@ -131,15 +145,26 @@ export async function findUser(handle: DatabaseHandle, id: string): Promise<User
   return withRoles ?? null
 }
 
-/** Matched through `lower()` so it agrees with the unique index on the column. */
-export async function emailTaken(handle: DatabaseHandle, address: string): Promise<boolean> {
+/**
+ * Whoever holds this address, deleted or not — matched through `lower()` so it agrees with
+ * the unique index on the column.
+ *
+ * `deletedAt` comes back with it because the two answers need different words: an address
+ * in use belongs to somebody here, an address on a deleted row is one whose account should
+ * be restored rather than recreated. The unique index deliberately has **no** `deleted_at`
+ * predicate, so a departed person's address stays reserved — see the note in the service.
+ */
+export async function findByEmail(
+  handle: DatabaseHandle,
+  address: string,
+): Promise<{ id: string; deletedAt: Date | null } | null> {
   const [row] = await handle
-    .select({ id: users.id })
+    .select({ id: users.id, deletedAt: users.deletedAt })
     .from(users)
     .where(sql`lower(${users.email}) = lower(${address})`)
     .limit(1)
 
-  return row !== undefined
+  return row ?? null
 }
 
 async function attachRoles(

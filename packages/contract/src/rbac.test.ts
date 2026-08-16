@@ -59,13 +59,31 @@ describe('system roles', () => {
   })
 
   it('keeps admin strictly below owner', () => {
-    // The docs promise that an admin cannot grant `user.disable` or `audit.read`.
-    // If someone widens the admin role, that promise breaks silently — so assert it.
-    const admin = SYSTEM_ROLES.find((r) => r.key === 'admin')!
-    const granted = resolveRolePermissions(admin)
+    // The docs promise that an admin cannot grant any of these. If someone widens the
+    // admin role, that promise breaks silently — so assert it.
+    //
+    // These keys are also the whole of "owner only" in this template: present in the
+    // catalog, absent here. Granting one to `admin` is what would quietly turn every
+    // administrator into a superadmin, which is why the list is spelled out rather than
+    // derived.
+    const OWNER_ONLY = [
+      'user.create',
+      'user.disable',
+      'user.delete',
+      'user.reset_password',
+      'audit.read',
+      'job.read',
+      'job.manage',
+    ]
 
-    expect(granted).not.toContain('user.disable')
-    expect(granted).not.toContain('audit.read')
+    const admin = SYSTEM_ROLES.find((r) => r.key === 'admin')!
+    const granted: readonly string[] = resolveRolePermissions(admin)
+
+    for (const key of OWNER_ONLY) {
+      expect(PERMISSION_KEYS).toContain(key)
+      expect(granted).not.toContain(key)
+    }
+
     expect(granted.length).toBeLessThan(PERMISSION_KEYS.length)
   })
 })

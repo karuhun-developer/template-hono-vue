@@ -97,6 +97,130 @@ const envSchema = z
     SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 
     /**
+     * How long a password reset link stays usable. An invitation lives for days because it
+     * has to survive a weekend; a reset only has to survive the walk to an inbox, and every
+     * extra hour is another hour a link sitting in a mailbox is a live credential.
+     *
+     * Capped at a day rather than left open: an unbounded reset TTL is a second password.
+     */
+    PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(60),
+
+    /**
+     * How background work is carried.
+     *
+     * `database` is the default because it is the only driver whose enqueue can join the
+     * transaction that caused it — see `docs/features/queue.md`. `sync` runs the handler
+     * inline and is what the test suite uses, so a suite asserts the effect of a job
+     * rather than the existence of a row. `redis` is BullMQ, for when the throughput is
+     * worth giving that guarantee up.
+     */
+    QUEUE_DRIVER: z.enum(['sync', 'database', 'redis']).default('database'),
+    /** How long the poller waits when it found nothing. It does not wait at all when it did. */
+    QUEUE_POLL_MS: z.coerce.number().int().min(50).max(60_000).default(1000),
+    /** How many jobs one worker claims at a time. Also the size of one batch. */
+    QUEUE_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(5),
+    /** The default for a job whose definition does not set its own. */
+    QUEUE_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(3),
+    /**
+     * How long a job may sit `running` before it is assumed the worker holding it is dead.
+     * A live worker finishes or fails in seconds; anything past this is a crash.
+     */
+    QUEUE_STALE_AFTER_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+    /**
+     * How long a shutting-down worker waits for the jobs still running before telling them,
+     * through `ctx.signal`, that nobody is waiting any more.
+     *
+     * Deliberately below the shutdown registry's own 10-second per-task timeout: the worker
+     * has to be able to report what it gave up on, and a grace period that outlives the
+     * registry's patience is a warning nobody ever sees.
+     */
+    QUEUE_SHUTDOWN_GRACE_MS: z.coerce.number().int().min(0).max(60_000).default(8000),
+
+    /**
+     * Where Redis is, for whichever subsystem has been pointed at it.
+     *
+     * Optional, because nothing here needs Redis by default — and required the moment
+     * something does, through the cross-field rule below. A subsystem that discovered the
+     * setting was missing at its first `push` would report it as a job failing to enqueue,
+     * hours after the deploy that caused it.
+     */
+    REDIS_URL: z.string().min(1).optional(),
+
+    /**
+     * Run the worker inside the API process instead of alongside it.
+     *
+     * Unset, it is `true` in development and `false` everywhere else — see
+     * `workerInProcess` below. `make dev` therefore stays one terminal, while production
+     * opts into a separate process by default, which is what lets the worker be restarted
+     * or scaled without touching the API.
+     */
+    WORKER_IN_PROCESS: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((value) => (value === undefined ? undefined : value === 'true')),
+
+    /**
+     * How email leaves this process.
+     *
+     * `log` is the default, and it is a real driver rather than a stub: it writes the
+     * message to the log **and** to `mail_messages`, so a fresh clone with no SMTP server
+     * anywhere can still invite somebody and read the link. Configuring a transport is
+     * therefore a thing you do when you are ready, not a thing standing between you and the
+     * first run.
+     *
+     * `smtp` is the one that leaves the process. It needs `SMTP_HOST` and nothing else in the
+     * common case, and the cross-field rule below refuses to boot without it.
+     */
+    MAIL_DRIVER: z.enum(['log', 'smtp']).default('log'),
+
+    /**
+     * The envelope sender. Recorded on every row as it read at the time, so a message sent
+     * under a domain you have since left still says so.
+     */
+    MAIL_FROM: z.email().default('no-reply@example.com'),
+    MAIL_FROM_NAME: z.string().trim().min(1).max(120).optional(),
+
+    /** How long a sent or failed message is kept. A mail log that grows forever is a table nobody vacuums. */
+    MAIL_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
+
+    /**
+     * Where the console is, from the outside.
+     *
+     * Effectively required, and this is the setting people are surprised by: every link in
+     * an email is absolute, and the code that builds it runs in a **worker**, where
+     * `window.location.origin` — which `InviteTokenDialog.vue` uses today — does not exist.
+     * The cross-field rule below keeps it honest.
+     */
+    CONSOLE_URL: z.url().default('http://localhost:7301'),
+
+    /**
+     * Where mail is handed over, when `MAIL_DRIVER=smtp`.
+     *
+     * Optional here and required by the cross-field rule below, the same shape as `REDIS_URL`:
+     * a driver that discovered the host was missing at its first send would report it as a
+     * job retrying, hours after the deploy that caused it.
+     */
+    SMTP_HOST: z.string().min(1).optional(),
+    /** 587 is submission-with-STARTTLS, which is what a relay offers unless it says otherwise. */
+    SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
+    /**
+     * Left unset, implicit TLS is inferred from the port — 465 yes, anything else no. Set it
+     * only for a relay that put SMTPS somewhere unusual. See `smtp.ts` for why guessing is
+     * safe: on 587 nodemailer still upgrades through `STARTTLS`.
+     */
+    SMTP_SECURE: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((value) => (value === undefined ? undefined : value === 'true')),
+    /**
+     * Both optional, and deliberately so: an internal relay that authenticates by IP is
+     * offered no credentials at all rather than an empty pair. `smtp.ts` omits the whole
+     * `auth` object when the user is unset.
+     */
+    SMTP_USER: z.string().min(1).optional(),
+    SMTP_PASSWORD: z.string().min(1).optional(),
+
+    /**
      * The first account `make seed` creates. Read here rather than hard-coded in the
      * seeder so that a fresh clone can be given a real address without editing source —
      * and so the password of the very first account never has to be committed.
@@ -112,6 +236,39 @@ const envSchema = z
         path: ['CORS_ORIGINS'],
         message:
           'cannot be "*" in production — this API sends credentials, and a browser rejects a wildcard origin on a credentialed request anyway. List the real origins.',
+      })
+    }
+
+    if (config.QUEUE_DRIVER === 'redis' && !config.REDIS_URL) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['REDIS_URL'],
+        message:
+          'is required when QUEUE_DRIVER=redis — write it as redis://localhost:7379. Without it nothing would fail until the first enqueue, which is a request, in production, at the worst moment.',
+      })
+    }
+
+    if (config.MAIL_DRIVER === 'smtp' && !config.SMTP_HOST) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SMTP_HOST'],
+        message:
+          'is required when MAIL_DRIVER=smtp — with no host there is nowhere to send. Without this rule the failure would surface as every invitation retrying three times and landing failed, which looks like a broken mail server rather than a missing setting.',
+      })
+    }
+
+    // The cross-field rule that pays for itself. Every link in an email is built from
+    // CONSOLE_URL, so an origin the console's own API will not talk to means an invitation
+    // that lands on a page whose first request is blocked by CORS — a failure that looks
+    // like a broken invitation and is actually a typo in a different variable.
+    if (
+      !config.CORS_ORIGINS.includes('*') &&
+      !config.CORS_ORIGINS.includes(new URL(config.CONSOLE_URL).origin)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CONSOLE_URL'],
+        message: `is ${new URL(config.CONSOLE_URL).origin}, which is not in CORS_ORIGINS (${config.CORS_ORIGINS.join(', ')}). Every link in an email points at this origin, so the page it opens would be unable to call this API.`,
       })
     }
   })
@@ -134,3 +291,13 @@ export const env = loadEnv(process.env)
 
 export const isProduction = env.NODE_ENV === 'production'
 export const isTest = env.NODE_ENV === 'test'
+
+/**
+ * Whether `src/index.ts` also starts the queue worker.
+ *
+ * The default is a function of `NODE_ENV`, which a single Zod field cannot express — a
+ * default is computed before the object is assembled, so it cannot read a sibling. Derived
+ * here instead, beside `isProduction`, rather than through a schema-level transform that
+ * would make the whole shape harder to read for one line of logic.
+ */
+export const workerInProcess = env.WORKER_IN_PROCESS ?? env.NODE_ENV === 'development'
