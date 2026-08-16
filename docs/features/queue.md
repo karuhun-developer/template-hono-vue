@@ -48,19 +48,60 @@ says "this job belongs to this change" and the driver honours it as well as it c
 | `QUEUE_DRIVER` | Runs where         | Enqueue joins the transaction | Retries | Rows in `jobs` |
 | -------------- | ------------------ | ----------------------------- | ------- | -------------- |
 | `database`     | the worker         | **yes**                       | yes     | yes            |
+| `redis`        | the worker         | no — dispatched after commit  | yes     | failures only  |
 | `sync`         | the caller, inline | no — it is the caller         | no      | no             |
 
-`database` is the default, and the first column of that table is why. `push` inserts
-through the caller's `tx`, so the row that changed and the job that acts on it commit
-together or not at all. That is a transactional outbox with no second system to keep in
-step, and it removes the failure that produces an email about an account that does not
-exist because the insert rolled back a moment later.
+### `database`
 
-`sync` runs the handler inline, awaited, and **rethrows**. It is what the test suite uses,
-which means a suite asserting an endpoint's effect fails when the job behind it throws — a
-driver that swallowed the error there would let every suite pass while production burned.
-It writes no rows, so there is nothing to list, retry or reap; anything that reads the job
-list says so rather than rendering an empty table that looks broken.
+The default, and the first column of that table is why. `push` inserts through the caller's
+`tx`, so the row that changed and the job that acts on it commit together or not at all.
+That is a transactional outbox with no second system to keep in step, and it removes the
+failure that produces an email about an account that does not exist because the insert
+rolled back a moment later.
+
+### `redis`
+
+BullMQ, loaded through `await import()` so a Postgres-only deployment never parses it.
+Choose it when the queue is the bottleneck: delayed jobs, backoff, concurrency limits and
+stalled-job recovery are BullMQ's, not ours, and Redis does them faster than a table.
+
+What it costs is the first column of that table. This driver **cannot join a Postgres
+transaction**, so `enqueue` goes through `defer` and the job is dispatched after the commit.
+The window that leaves — a crash between the commit and the dispatch — loses the job. For
+mail that hole is closed by the `mail_messages` row, which is written inside the transaction,
+and the `mail.sweep-stuck` schedule that re-enqueues anything still `queued`. A job with no
+such record is a job this driver can lose, and that is the trade being made.
+
+Two details worth knowing before reading the file:
+
+- **A terminal failure is mirrored into `jobs`.** BullMQ's own failure records live in
+  Redis, expire with `removeOnFail`, and go with the server — so the Jobs page would
+  otherwise show a different history depending on `QUEUE_DRIVER`. Successes are **not**
+  mirrored: putting every job through Postgres anyway is the entire cost this driver exists
+  to avoid.
+- **A dedupe key is percent-escaped into a BullMQ job id.** BullMQ builds its Redis keys by
+  joining on `:` and rejects a custom id containing one — and every key the scheduler
+  produces is `<schedule>:<fired_for>`.
+
+> **The BullMQ gotcha.** A connection given to a `Worker` must be created with
+> `maxRetriesPerRequest: null`. A worker blocks on `BZPOPMIN` for seconds at a time, ioredis
+> counts a blocked command as a request that has not answered, and at the default of twenty
+> retries it gives up. BullMQ refuses to start without the option — but the error it throws
+> names neither the option nor ioredis, so the search that follows is a long one.
+
+Redis is behind a compose profile, because the defaults do not need it:
+
+```bash
+make up-redis   # Postgres 7332 · Redis 7379
+```
+
+### `sync`
+
+Runs the handler inline, awaited, and **rethrows**. It is what the test suite uses, which
+means a suite asserting an endpoint's effect fails when the job behind it throws — a driver
+that swallowed the error there would let every suite pass while production burned. It writes
+no rows, so there is nothing to list, retry or reap; anything that reads the job list says
+so rather than rendering an empty table that looks broken.
 
 It is also **not** transactional, despite running inside the caller's call stack: a handler
 running inside the transaction would see rows nobody else can see yet, and a rollback would
@@ -95,6 +136,8 @@ the handler will not be registered on the second attempt either, and three tries
 one confusing log line into three.
 
 ## The loop
+
+The `database` driver's, specifically — `redis` has BullMQ's, and `sync` has none.
 
 Claim → run → record, and back round. When a batch comes back full the poller goes straight
 round again; only an empty claim waits `QUEUE_POLL_MS`.
@@ -205,6 +248,7 @@ registry's own ten-second patience, so the warning it logs is one somebody actua
 | Variable                    | Default    | Notes                                            |
 | --------------------------- | ---------- | ------------------------------------------------ |
 | `QUEUE_DRIVER`              | `database` | `sync` in the test suite                         |
+| `REDIS_URL`                 | unset      | Required as soon as `QUEUE_DRIVER=redis`         |
 | `QUEUE_POLL_MS`             | `1000`     | Only applies when the last claim found nothing   |
 | `QUEUE_CONCURRENCY`         | `5`        | Jobs claimed per batch by one worker             |
 | `QUEUE_MAX_ATTEMPTS`        | `3`        | A job definition may override it                 |

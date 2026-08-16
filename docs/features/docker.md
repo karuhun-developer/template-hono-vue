@@ -90,37 +90,24 @@ Three things to get right whatever you build:
 - **`GET /health/ready` is your readiness probe** — it checks the database. `GET /health` is liveness and touches nothing.
 - **The frontends are static files.** `pnpm --filter @app/console build` produces `dist/`; serve it from nginx, a CDN, or anything else. It does not need Node at runtime.
 
-## Adding Redis
+## Redis
 
-Nothing in this template needs it — auth and RBAC involve no queue, cache or pub/sub. When you do:
+Nothing in the default configuration needs it — the queue is Postgres and the cache is
+in-process. It ships behind a compose profile, so `make up` stays a one-container stack:
 
-```yaml
-# docker-compose.yml
-services:
-  redis:
-    image: redis:8-alpine
-    command: ['redis-server', '--appendonly', 'yes']
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-volumes:
-  redisdata:
+```bash
+make up-redis   # Postgres 7332 · Redis 7379
 ```
 
-```yaml
-# docker-compose.dev.yml
-services:
-  redis:
-    ports:
-      - '${REDIS_PORT:-7379}:6379'
-```
+Two things about that service are deliberate. It has **no volume and no persistence**
+(`--save '' --appendonly no`): a development Redis holding a job queue across restarts is a
+source of jobs from a schema three branches ago. And the port is **7379**, for the same
+reason Postgres is on 7332 — a development machine usually already has one on the default.
 
-Then add `REDIS_URL` to `.env.example` and to the schema in `apps/api/src/env.ts` — an environment variable that is not validated there is one that fails three hours into a request instead of in the first second of boot.
+Point a subsystem at it with `REDIS_URL` plus the driver setting that wants it
+(`QUEUE_DRIVER=redis`). The API refuses to boot if one is set without the other; an
+environment variable that is not validated in `apps/api/src/env.ts` is one that fails three
+hours into a request instead of in the first second of boot.
 
 ## Conventions
 

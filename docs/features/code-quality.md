@@ -54,18 +54,19 @@ ESLint's TypeScript program cannot read types inside an SFC, so to it `App.vue` 
 
 ## Testing
 
-`apps/api` runs against a **real PostgreSQL**. The reasoning is in [`../architecture.md`](../architecture.md#the-testing-contract); the operational facts are here:
+`apps/api` runs against a **real PostgreSQL**, and its redis driver suite against a **real Redis**. The reasoning is in [`../architecture.md`](../architecture.md#the-testing-contract); the operational facts are here:
 
 ```bash
-make up          # Postgres must be running
+make up-redis    # Postgres and Redis must both be running
 make test        # or: pnpm -r test
 ```
 
-| Package         | Suite                               | Needs a database |
-| --------------- | ----------------------------------- | ---------------- |
-| `@app/contract` | `rbac.test.ts`                      | no               |
-| `@app/api`      | `tests/*.test.ts`                   | **yes**          |
-| `@app/console`  | `lib/*.test.ts`, `stores/*.test.ts` | no               |
+| Package         | Suite                               | Needs        |
+| --------------- | ----------------------------------- | ------------ |
+| `@app/contract` | `rbac.test.ts`                      | nothing      |
+| `@app/api`      | `tests/*.test.ts`                   | **Postgres** |
+| `@app/api`      | `tests/queue.redis.test.ts`         | **Redis**    |
+| `@app/console`  | `lib/*.test.ts`, `stores/*.test.ts` | nothing      |
 
 - **`fileParallelism: false`** for the API — one process, so suites cannot collide on the shared database.
 - **`globalSetup` migrates `app_test`** before the first test, and **fails loudly** with the commands to fix it if Postgres is not there. It never skips. A green run that never ran is trusted, which makes it more dangerous than a red one.
@@ -75,10 +76,11 @@ Try it: stop Docker and run `make test`. The failure should tell you exactly wha
 
 ## CI
 
-`.github/workflows/ci.yml` — one job, `format:check → typecheck → lint → test`, against a `postgres:17-alpine` service.
+`.github/workflows/ci.yml` — one job, `format:check → typecheck → lint → test`, against `postgres:17-alpine` and `redis:8-alpine` services.
 
 - **One job, not four.** The gate takes a couple of minutes; splitting it means four checkouts and four `pnpm install`s — more wall-clock spent on setup than saved on parallelism, and four places to notice a failure instead of one.
-- The service publishes **7332**, the same port as the development stack, so `apps/api/vitest.config.ts` needs no CI-only branch.
+- The services publish **7332** and **7379**, the same ports as the development stack, so `apps/api/vitest.config.ts` needs no CI-only branch.
+- Redis is a service here even though it is behind a compose profile locally. A suite that skips when its dependency is missing is a suite that quietly stopped testing the feature, and the day that matters is the day somebody switches `QUEUE_DRIVER` in production.
 - `app_test` is created explicitly, because `docker/postgres/init/01-databases.sql` only runs for the compose stack.
 - `concurrency` with `cancel-in-progress`: nobody reads the CI result of a commit that has been replaced.
 

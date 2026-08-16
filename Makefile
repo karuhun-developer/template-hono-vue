@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f docker-compose.yml -f docker-compose.dev.yml
 
-.PHONY: help setup up down logs ps psql dev worker check typecheck lint test fmt generate migrate seed reset rename
+.PHONY: help setup up up-redis down logs ps psql dev worker check typecheck lint test fmt generate migrate seed reset rename
 
 help: ## Show this list
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -13,8 +13,11 @@ setup: ## Create .env and install dependencies
 up: ## Start Postgres and wait until it is healthy
 	$(COMPOSE) up -d --wait
 
+up-redis: ## Start Redis alongside Postgres (for QUEUE_DRIVER=redis or CACHE_DRIVER=redis)
+	$(COMPOSE) --profile redis up -d --wait
+
 down: ## Stop containers
-	$(COMPOSE) down
+	$(COMPOSE) --profile redis down
 
 logs: ## Follow container logs
 	$(COMPOSE) logs -f

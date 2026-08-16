@@ -14,3 +14,10 @@ services:
       - log_min_duration_statement=200
       - -c
       - log_line_prefix=%m [%p] %q%u@%d
+
+  redis:
+    profiles: ['redis']
+    ports:
+      # 7379 rather than 6379, for the same reason Postgres is on 7332: a development
+      # machine usually already has one running.
+      - '${REDIS_PORT:-7379}:6379'

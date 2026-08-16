@@ -5,6 +5,7 @@ import type { Defer } from '#db/tx'
 import { env } from '#env'
 import { onShutdown } from '#lib/shutdown'
 import { createDatabaseQueue } from '#queue/driver/database'
+import { createRedisQueue } from '#queue/driver/redis'
 import { createSyncQueue } from '#queue/driver/sync'
 import { JOBS, type JobCatalog, type JobName, type JobPayload } from '#queue/registry'
 
@@ -31,7 +32,7 @@ import { JOBS, type JobCatalog, type JobName, type JobPayload } from '#queue/reg
  * failure that produces an email about an account that does not exist.
  */
 
-export type QueueKind = 'sync' | 'database'
+export type QueueKind = 'sync' | 'database' | 'redis'
 
 /** A job that has been validated and is ready for a driver. Payload is plain JSON. */
 export type QueuedJob = {
@@ -135,6 +136,8 @@ function createQueueFromEnv(): QueueDriver {
       return createSyncQueue()
     case 'database':
       return createDatabaseQueue()
+    case 'redis':
+      return createRedisQueue()
   }
 }
 

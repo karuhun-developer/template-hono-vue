@@ -111,9 +111,10 @@ const envSchema = z
      * `database` is the default because it is the only driver whose enqueue can join the
      * transaction that caused it — see `docs/features/queue.md`. `sync` runs the handler
      * inline and is what the test suite uses, so a suite asserts the effect of a job
-     * rather than the existence of a row.
+     * rather than the existence of a row. `redis` is BullMQ, for when the throughput is
+     * worth giving that guarantee up.
      */
-    QUEUE_DRIVER: z.enum(['sync', 'database']).default('database'),
+    QUEUE_DRIVER: z.enum(['sync', 'database', 'redis']).default('database'),
     /** How long the poller waits when it found nothing. It does not wait at all when it did. */
     QUEUE_POLL_MS: z.coerce.number().int().min(50).max(60_000).default(1000),
     /** How many jobs one worker claims at a time. Also the size of one batch. */
@@ -134,6 +135,16 @@ const envSchema = z
      * registry's patience is a warning nobody ever sees.
      */
     QUEUE_SHUTDOWN_GRACE_MS: z.coerce.number().int().min(0).max(60_000).default(8000),
+
+    /**
+     * Where Redis is, for whichever subsystem has been pointed at it.
+     *
+     * Optional, because nothing here needs Redis by default — and required the moment
+     * something does, through the cross-field rule below. A subsystem that discovered the
+     * setting was missing at its first `push` would report it as a job failing to enqueue,
+     * hours after the deploy that caused it.
+     */
+    REDIS_URL: z.string().min(1).optional(),
 
     /**
      * Run the worker inside the API process instead of alongside it.
@@ -164,6 +175,15 @@ const envSchema = z
         path: ['CORS_ORIGINS'],
         message:
           'cannot be "*" in production — this API sends credentials, and a browser rejects a wildcard origin on a credentialed request anyway. List the real origins.',
+      })
+    }
+
+    if (config.QUEUE_DRIVER === 'redis' && !config.REDIS_URL) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['REDIS_URL'],
+        message:
+          'is required when QUEUE_DRIVER=redis — write it as redis://localhost:7379. Without it nothing would fail until the first enqueue, which is a request, in production, at the worst moment.',
       })
     }
   })

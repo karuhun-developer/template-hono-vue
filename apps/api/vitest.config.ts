@@ -20,6 +20,10 @@ const TEST_ENV = {
   // when the job behind it throws. The database driver is constructed directly by the
   // driver suite, which is the only place a poll loop belongs in a test.
   QUEUE_DRIVER: 'sync',
+  // Not because anything defaults to Redis — nothing does — but because the redis driver
+  // suite must fail rather than skip when there is no server. `make up-redis` locally,
+  // a service container in CI, both on 7379.
+  REDIS_URL: 'redis://localhost:7379',
 } as const
 
 Object.assign(process.env, TEST_ENV)

@@ -138,6 +138,47 @@ export async function markFailed(
 }
 
 /**
+ * Write a job that has already failed for the last time, somewhere else.
+ *
+ * Only the redis driver calls this. BullMQ keeps its own failure records, but they live in
+ * Redis, expire with `removeOnFail`, and vanish entirely with a `FLUSHALL` — so a Jobs page
+ * reading them would show a different history depending on `QUEUE_DRIVER`. Mirroring the
+ * terminal failures into `jobs` gives one durable answer to "what went wrong" regardless of
+ * which transport carried it.
+ *
+ * Only failures. Mirroring successes too would put every job through Postgres anyway, which
+ * is the entire cost the redis driver exists to avoid.
+ *
+ * `dedupe_key` is deliberately left null: a mirrored row is history, and a historical row
+ * holding the unique key would silently reject the next enqueue that reuses it.
+ */
+export async function recordFailedJob(
+  database: Database,
+  row: {
+    name: string
+    payload: Record<string, unknown>
+    attempts: number
+    maxAttempts: number
+    error: string
+    lockedBy: string
+  },
+): Promise<void> {
+  const now = new Date()
+
+  await database.insert(jobs).values({
+    name: row.name,
+    payload: row.payload,
+    status: 'failed',
+    attempts: row.attempts,
+    maxAttempts: row.maxAttempts,
+    runAt: now,
+    lockedBy: row.lockedBy,
+    lastError: row.error,
+    finishedAt: now,
+  })
+}
+
+/**
  * Hand back the rows a dead worker was holding.
  *
  * `running` with a `locked_at` older than the stale window means the process that claimed

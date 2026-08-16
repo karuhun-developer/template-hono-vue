@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { db as defaultDb, type Database } from '#db/client'
 import { env } from '#env'
 import { logger as defaultLogger } from '#lib/logger'
+import { describeError, expire, retryDelayMs } from '#queue/driver/shared'
 import type { QueueDriver, QueuedJob } from '#queue/queue'
 import {
   claimJobs,
@@ -47,28 +48,6 @@ export type DatabaseQueue = QueueDriver & {
   tick: () => Promise<number>
   /** Hand back the rows a dead worker was holding. Scheduled as `queue.reap`. */
   reap: () => Promise<number>
-}
-
-/**
- * `min(1000 * 2^(attempt-1), 300_000)`, plus or minus a fifth.
- *
- * The jitter is not cosmetic: a hundred jobs failing together because one dependency was
- * down would otherwise all come back at the same instant, and take it down again.
- */
-export function retryDelayMs(attempt: number): number {
-  const base = Math.min(1000 * 2 ** (attempt - 1), 300_000)
-  return Math.round(base * (1 + 0.2 * (Math.random() * 2 - 1)))
-}
-
-function describe(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
-}
-
-/** Resolves `false` after `ms`. Unreffed, so waiting for a grace period never delays an exit. */
-function expire(ms: number): Promise<false> {
-  return new Promise<false>((resolve) => {
-    setTimeout(() => resolve(false), ms).unref()
-  })
 }
 
 export function createDatabaseQueue(options: DatabaseQueueOptions = {}): DatabaseQueue {
@@ -131,7 +110,7 @@ export function createDatabaseQueue(options: DatabaseQueueOptions = {}): Databas
       const exhausted = row.attempts >= row.maxAttempts
       const retryAt = exhausted ? null : new Date(Date.now() + retryDelayMs(row.attempts))
 
-      await markFailed(database, row.id, { error: describe(err), retryAt })
+      await markFailed(database, row.id, { error: describeError(err), retryAt })
 
       if (exhausted) child.error({ err }, 'job failed for the last time')
       else child.warn({ err, retryAt }, 'job failed, retrying later')
