@@ -260,17 +260,22 @@ export function useResourceList<Row, Key extends string>(
 /**
  * Turns a Hono client response into what `fetch` has to return.
  *
- * Keeps `Row` inferred from the route — the page never names the type — while putting the
- * "was it ok, and what does an error body look like" question in one place rather than in
- * every list on the site.
+ * Keeps the page type inferred from the route — the caller never names it — while putting
+ * the "was it ok, and what does an error body look like" question in one place rather than
+ * in every list on the site.
+ *
+ * The **whole** response type survives rather than being narrowed to `{ items, total }`,
+ * because a list endpoint is allowed to answer with more than a page: `GET /jobs` sends
+ * `coverage`, `manageable` and `names` alongside its rows, and those are things the page
+ * has to render. `useResourceList` reads the two fields it needs and ignores the rest.
  */
-export async function listResult<Row>(
+export async function listResult<Page extends ResourcePage<unknown>>(
   pending: Promise<{
     ok: boolean
     status: number
-    json: () => Promise<ResourcePage<Row>>
+    json: () => Promise<Page>
   }>,
-): Promise<ResourceResult<Row>> {
+): Promise<Page | { failure: ApiFailure }> {
   const response = await pending
   if (!response.ok) return { failure: await readApiError(response) }
   return response.json()

@@ -4,6 +4,7 @@ import { conflict, notFound } from '#lib/errors'
 import { recordAudit, type AuditActor } from '#modules/audit/audit.repo'
 import type { ListJobsQuery } from '#modules/jobs/jobs.schema'
 import { queueAdmin, type JobCoverage, type QueueAdmin } from '#queue/queue.admin'
+import { JOB_NAMES } from '#queue/registry'
 
 /**
  * The Jobs page's side of the queue.
@@ -27,6 +28,16 @@ export type JobListPage = {
   coverage: JobCoverage
   /** Whether retry and cancel will do anything, so the console can say so up front. */
   manageable: boolean
+  /**
+   * The catalog, so the console's name facet is this list rather than a second copy of it.
+   *
+   * `jobs.schema.ts` says a job name is "a closed set the console can offer as a facet" —
+   * this is that set, travelling with the page it is offered on. A row whose name has since
+   * left the catalog is therefore not in the facet, which is why the filter itself takes a
+   * bounded string: the one message somebody is looking for is often the one under a name
+   * that no longer exists.
+   */
+  names: readonly string[]
 }
 
 export async function listVisibleJobs(
@@ -49,6 +60,7 @@ export async function listVisibleJobs(
     perPage: query.perPage,
     coverage: admin.coverage,
     manageable: admin.manageable,
+    names: JOB_NAMES,
   }
 }
 

@@ -19,6 +19,7 @@ import type { api } from '@/lib/api'
  * re-exported here so that `@/lib/models` stays the one import a page reaches for. What is
  * declared *here* is what belongs to no single module.
  */
+export type { JobStatus, JobSummary } from '@/features/jobs/api'
 export type { PermissionCatalog, RoleSummary } from '@/features/roles/api'
 export type { UserRoleRef, UserStatus, UserSummary } from '@/features/users/api'
 

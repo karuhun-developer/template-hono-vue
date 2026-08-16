@@ -1,5 +1,5 @@
 import type { PermissionKey } from '@app/contract'
-import { LayoutDashboard, ScrollText, ShieldCheck, Users } from '@lucide/vue'
+import { LayoutDashboard, ListChecks, ScrollText, ShieldCheck, Users } from '@lucide/vue'
 import type { Component } from 'vue'
 
 /**
@@ -50,5 +50,14 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     label: 'Audit',
     items: [{ to: '/audit-log', label: 'Audit log', icon: ScrollText, permission: 'audit.read' }],
+  },
+  /**
+   * Owner-only, and achieved with no "superadmin" concept anywhere: every key in this group
+   * is in the catalog and absent from the Administrator role, so `visibleGroups()` drops the
+   * whole group — heading included — for an admin.
+   */
+  {
+    label: 'Operations',
+    items: [{ to: '/jobs', label: 'Jobs', icon: ListChecks, permission: 'job.read' }],
   },
 ]

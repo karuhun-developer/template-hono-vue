@@ -55,6 +55,7 @@ Pages stay in `pages/` because the router points at them, and they stay short. A
 | `/users`                 | Users                | `permission: 'user.read'`  |
 | `/roles`                 | Roles                | `permission: 'role.read'`  |
 | `/audit-log`             | Audit log            | `permission: 'audit.read'` |
+| `/jobs`                  | Jobs                 | `permission: 'job.read'`   |
 | `/:pathMatch(.*)*`       | Not found            | `public`                   |
 
 **The default is "signed in required".** `meta.public` is the exception, and it is granted only to the sign-in page, the three credential pages and the two error pages. A new route that forgets to say anything is protected, which is the right way round for a default to fail.
@@ -150,7 +151,9 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 ]
 ```
 
-An item with `children` is a disclosure, not a destination: it expands, and its `to` is the prefix that marks the group active. There are two groups rather than the six an admin template usually ships with, because **an item is added in the same commit as its page** — a menu entry leading to an empty screen reads as a broken feature.
+An item with `children` is a disclosure, not a destination: it expands, and its `to` is the prefix that marks the group active. There are three groups rather than the six an admin template usually ships with, because **an item is added in the same commit as its page** — a menu entry leading to an empty screen reads as a broken feature.
+
+**Operations is the whole "superadmin" story.** Every key in that group is in the catalog and absent from the Administrator role, so the filter below drops the group — heading included — for an admin. No flag, no second concept: a page is owner-only because of who holds its permission.
 
 `visibleGroups()` in `lib/access.ts` filters items by `hasPermission()` — the same function the route guard uses — then drops any group left empty and any parent left with no children. Without that last step, somebody lacking `audit.read` would see the heading "Audit" over nothing and conclude the page failed to load. Any drift between this filter and the guard shows up at once as a menu item that leads to the access-denied page.
 

@@ -228,6 +228,11 @@ three it is looking at instead of rendering an empty table beside a pager. Under
 page says _"Jobs run inline in this configuration, so there is nothing to list"_ — honest,
 rather than something that looks broken.
 
+`names` travels with them: the `JOBS` catalog, so the page's Job facet is this list rather
+than a second copy of it in the console. The filter itself still takes a bounded string,
+because a row whose name has since left the catalog is exactly the row somebody is looking
+for — the facet offers what exists, the query accepts what existed.
+
 The `redis` admin is deliberately read-only. A row there is a **copy** of something that
 already died inside BullMQ: flipping it back to `pending` would change nothing in Redis,
 where the queue actually is, and would leave a row claiming to be queued that no worker will
