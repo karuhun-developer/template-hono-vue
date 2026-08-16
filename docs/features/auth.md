@@ -109,7 +109,7 @@ Only the **hash** of the invitation token is stored, in `users.invite_token_hash
 
 Accepting signs you straight in. The person has just proved two things at once — they hold the link, and they chose the password — so making them retype an email and a password they picked three seconds ago adds no security, only mistyped support calls.
 
-> **No email is sent.** The template returns the invitation token to the caller and the console shows the link in a dialog. Wire your provider in `users.service.ts` where the token is issued, and stop returning the token in the response when you do.
+> **The invitation is emailed**, from inside the transaction that issued it — see [Mail](mail.md). The response also carries the token, once, but **only under `MAIL_DRIVER=log`**, where nothing actually reached an inbox and the console dialog is the only way to hand somebody the link. Configure a real transport and `inviteToken` comes back `null`; the dialog then says where the mail went.
 
 ## Password resets
 
@@ -149,7 +149,7 @@ The console's half is `ForgotPasswordPage.vue`, reached from a link beside the p
 
 Then **every session is revoked**, before the new one is created. "I forgot my password" and "I think somebody else has my password" arrive through the same door, and only one of them is safe to leave signed in elsewhere. Ordering it after would sign the person out of the session the reset had just handed them.
 
-> **No email is sent here either.** Outside production the link is written to the API log (`password reset requested — no mailer is configured`), because a self-service token is the one that can never be returned in a response. That log line goes when the mail subsystem takes over the send.
+> **This is the one flow whose token never comes back in the response**, whatever `MAIL_DRIVER` is set to: handing the link to whoever asked for it is the entire attack. The email is the only channel. Under the default `log` driver the message still reaches the API log, so a fresh clone can follow the flow end to end without a mail server — and the row it leaves in the Mail log has the token replaced by `[redacted]`, because that page is readable by whoever holds `mail.read`.
 
 ## Conventions
 

@@ -12,6 +12,7 @@ import {
   createUser,
   emailFor,
   ensureCatalog,
+  lastMailTo,
   login,
   request,
   sessionCookie,
@@ -297,6 +298,22 @@ describe('POST /auth/forgot-password', () => {
     expect((await resetColumns(FORGETFUL)).hash).not.toBeNull()
   })
 
+  /**
+   * The link goes to the person, and only to the person. The response cannot carry it —
+   * that would hand it to whoever asked — so the mail is the entire channel, and this is
+   * the assertion that it exists.
+   */
+  it('sends the link by email, and stores that copy with the token redacted', async () => {
+    const message = await lastMailTo(FORGETFUL)
+
+    expect(message?.template).toBe('password-reset')
+    expect(message?.toEmail).toBe(FORGETFUL)
+    // The stored body is what the Mail log page shows. A live reset link in it would make
+    // `mail.read` a way of taking accounts over.
+    expect(message?.textBody).toContain('[redacted]')
+    expect(message?.textBody).not.toMatch(/rst_[\w-]+/)
+  })
+
   it('answers an unknown address exactly as it answered a real one', async () => {
     const real = await request(app, '/auth/forgot-password', {
       method: 'POST',
@@ -319,6 +336,9 @@ describe('POST /auth/forgot-password', () => {
 
     expect(res.status).toBe(200)
     expect((await resetColumns(PENDING)).hash).toBeNull()
+    // No token, and therefore no email either — the mail is queued in the same transaction
+    // that issued one, so there is no way to have the second without the first.
+    expect(await lastMailTo(PENDING)).toBeNull()
   })
 
   /** Otherwise "switch this person off" is undone by a form anybody can post to. */
@@ -330,6 +350,7 @@ describe('POST /auth/forgot-password', () => {
 
     expect(res.status).toBe(200)
     expect((await resetColumns(DISABLED)).hash).toBeNull()
+    expect(await lastMailTo(DISABLED)).toBeNull()
   })
 
   /**

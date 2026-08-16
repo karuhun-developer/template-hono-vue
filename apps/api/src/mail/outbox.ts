@@ -77,3 +77,24 @@ export async function queueMail<N extends TemplateName>(
 
   return messageId
 }
+
+/**
+ * May a one-time link be handed back to whoever asked for it?
+ *
+ * Only under `MAIL_DRIVER=log`, where nothing actually reaches an inbox. A fresh clone has
+ * no transport and the first thing anybody does with this template is invite somebody, so
+ * the link has to come from somewhere — and with the log driver the response is the only
+ * somewhere there is.
+ *
+ * The moment a real transport is configured the field goes `null`: the recipient has the
+ * link, and answering the caller with a second copy of somebody else's credential is a
+ * thing to stop doing rather than a convenience to keep.
+ *
+ * Written once, here, because the two callers that reveal a token — invitations and
+ * admin-triggered resets — must not be able to disagree about the rule. `POST
+ * /auth/forgot-password` never returns one under any driver; that is a different rule and
+ * it belongs to that endpoint, which would otherwise hand the link to whoever asked.
+ */
+export function revealTokens(): boolean {
+  return mailer.kind === 'log'
+}

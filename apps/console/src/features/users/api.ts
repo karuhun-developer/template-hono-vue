@@ -62,14 +62,14 @@ export function fetchUsers(
 /**
  * What any of the three writes hands back.
  *
- * `inviteToken` exists only on the invite path, and only for as long as the response
- * carries it — the server keeps a hash, so this is the single moment it can be read.
- * Creating an account outright carries none, because there is no link: the password was
- * chosen by whoever filled the form in.
+ * `inviteToken` is present only on the invite path — creating an account outright has no
+ * link, because the password was chosen by whoever filled the form in — and it is `null`
+ * whenever the API really emailed the invitation, which is every configuration except
+ * `MAIL_DRIVER=log`. A token that is there is there once: the server keeps only a hash.
  */
 export type UserSaved = {
   user: UserSummary
-  inviteToken?: string
+  inviteToken?: string | null
   inviteExpiresAt?: string
 }
 

@@ -72,10 +72,12 @@ function openEdit(user: UserSummary): void {
 function onSaved(result: UserSaved): void {
   void list.reload()
 
-  // Only the invite path carries one. Creating an account outright has no link to show,
-  // and editing has nothing to issue.
-  if (result.inviteToken) {
-    showLink('invite', result.user.email, result.inviteToken, result.inviteExpiresAt)
+  // Only the invite path carries the field at all — creating an account outright has no
+  // link to show, and editing has nothing to issue. The value inside it may still be
+  // `null`, which means the invitation was emailed; the dialog then confirms where it went
+  // rather than offering something to copy.
+  if ('inviteToken' in result) {
+    showLink('invite', result.user.email, result.inviteToken ?? null, result.inviteExpiresAt)
   }
 }
 

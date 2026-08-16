@@ -12,18 +12,18 @@ Inviting people, creating them outright, editing them and their roles, switching
 
 ## Endpoints
 
-| Method   | Path                        | Permission            | Does                                           |
-| -------- | --------------------------- | --------------------- | ---------------------------------------------- |
-| `GET`    | `/users`                    | `user.read`           | List — paged, sorted, filtered (see below)     |
-| `GET`    | `/users/:id`                | `user.read`           | One user, in the shape a list row has          |
-| `POST`   | `/users`                    | `user.invite`         | Create as `invited`, return the token **once** |
-| `POST`   | `/users/create`             | `user.create`         | Create as `active`, with a password            |
-| `POST`   | `/users/:id/invite`         | `user.invite`         | Re-issue the token; the previous link dies     |
-| `PATCH`  | `/users/:id`                | `user.update`         | Name and roles                                 |
-| `POST`   | `/users/:id/status`         | `user.disable`        | `active` ⇄ `disabled`                          |
-| `DELETE` | `/users/:id`                | `user.delete`         | Soft delete — sets `deleted_at`                |
-| `POST`   | `/users/:id/restore`        | `user.delete`         | Clears it again                                |
-| `POST`   | `/users/:id/reset-password` | `user.reset_password` | Issues `rst_…`, returned **once**              |
+| Method   | Path                        | Permission            | Does                                         |
+| -------- | --------------------------- | --------------------- | -------------------------------------------- |
+| `GET`    | `/users`                    | `user.read`           | List — paged, sorted, filtered (see below)   |
+| `GET`    | `/users/:id`                | `user.read`           | One user, in the shape a list row has        |
+| `POST`   | `/users`                    | `user.invite`         | Create as `invited`, email the invitation    |
+| `POST`   | `/users/create`             | `user.create`         | Create as `active`, with a password          |
+| `POST`   | `/users/:id/invite`         | `user.invite`         | Re-issue and re-send; the previous link dies |
+| `PATCH`  | `/users/:id`                | `user.update`         | Name and roles                               |
+| `POST`   | `/users/:id/status`         | `user.disable`        | `active` ⇄ `disabled`                        |
+| `DELETE` | `/users/:id`                | `user.delete`         | Soft delete — sets `deleted_at`              |
+| `POST`   | `/users/:id/restore`        | `user.delete`         | Clears it again                              |
+| `POST`   | `/users/:id/reset-password` | `user.reset_password` | Issue `rst_…` and email the link             |
 
 Status has **its own endpoint and its own permission** rather than being a field on `PATCH /users/:id`. Locking somebody out is not the same kind of act as correcting the spelling of their name, and the audit entry it writes should not depend on anyone remembering to look at a `status` key in a request body.
 
@@ -74,7 +74,7 @@ Both routes run `assertRolesGrantable()` first, for the reason in the next secti
 `POST /users/:id/reset-password` is the counterpart to `POST /auth/forgot-password`, for the person who cannot receive the mail — a changed address, a mailbox nobody has access to any more. Both ends issue the same kind of token through the same repository; three things differ, each because the caller is signed in rather than anonymous:
 
 - **No cooldown.** It exists to stop an anonymous form being used as an email cannon. Whoever reaches this route holds an owner-only permission and is named in the audit entry; pressing the button twice is not an attack.
-- **The token comes back in the response**, once, exactly as an invitation token does, so an installation with no mailer can still hand somebody a link.
+- **The token can come back in the response**, once, exactly as an invitation token does — but only under `MAIL_DRIVER=log`. See [One-time links](#one-time-links) below. The person whose account it is gets the email either way, and it says an administrator started the reset rather than that somebody asked for one.
 - **The refusals are specific.** An invited account is told to re-send its invitation, a disabled one to be enabled first. There is nothing to leak to a caller who can already read the user list.
 
 Its own permission key, not `user.update`: starting a credential flow on somebody else's account is not the same act as correcting the spelling of their name. See rule 3 below for the guard that goes with it.
@@ -110,16 +110,27 @@ One condition in SQL, holding for every code path, beats a revocation pass that 
 
 ## One-time links
 
-`POST /users` and `POST /users/:id/invite` return `inviteToken`, and `POST /users/:id/reset-password` returns `resetToken`, **in that response only**. What is stored is the SHA-256 hash of each, under a partial unique index, so a user has at most one outstanding invitation and at most one live reset.
+Every one of them is **emailed**, from inside the transaction that issued it — `queueMail(tx, defer, …)`, so an invitation that rolls back takes its email with it. See [Mail](mail.md).
+
+`POST /users` and `POST /users/:id/invite` also return `inviteToken`, and `POST /users/:id/reset-password` returns `resetToken`, **in that response only**. What is stored is the SHA-256 hash of each, under a partial unique index, so a user has at most one outstanding invitation and at most one live reset.
+
+Both fields are `string | null`, and `revealTokens()` — one function, so the rule is written once — decides which:
+
+| `MAIL_DRIVER` | The field | Why                                                                                                  |
+| ------------- | --------- | ---------------------------------------------------------------------------------------------------- |
+| `log`         | the token | Nothing reached an inbox. A fresh clone has no transport, and the link has to come from somewhere    |
+| anything else | `null`    | The recipient has it. A second copy in the response is a credential handed to somebody it is not for |
+
+`string | null` rather than a field that comes and goes: a key that is sometimes absent makes the response an anonymous union, and the console derives its types from this shape.
 
 Both are rendered by `InviteTokenDialog.vue`, which takes a `kind` prop and builds `<origin>/invitation/<token>` or `<origin>/reset-password/<token>`. It:
 
 - blocks Escape and outside-click, because closing it loses a value that cannot be fetched again;
 - falls back to a selectable text box when the clipboard is refused — over plain HTTP on a non-localhost origin it always will be.
 
-`window.location.origin` is correct **here and only here**: this dialog runs in the browser of whoever pressed the button. A link that leaves by email is addressed on the server, where there is no `window`.
+`window.location.origin` is correct **here and only here**: this dialog runs in the browser of whoever pressed the button. A link that leaves by email is addressed from `CONSOLE_URL` on the server, where there is no `window`.
 
-> **When you wire up email**, send the link from the service where the token is issued and stop returning `inviteToken` and `resetToken` in the response body. Everything else stays as it is.
+With a real transport the dialog still opens, with nothing to copy: _"We have emailed the link to ada@example.com."_ A confirmation of where it went is worth more than a dialog that silently does not appear, which is indistinguishable from a button that did nothing.
 
 ## The console side
 

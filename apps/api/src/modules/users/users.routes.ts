@@ -29,12 +29,14 @@ import {
 /**
  * User management.
  *
- * The invitation token appears in the response of `POST /users` and
- * `POST /users/:id/invite` — once — and the reset token in `POST /users/:id/reset-password`
- * the same way. Neither can be read back from `GET /users`, because what is stored is only
- * their hash, exactly as with a session token. Hand it to the person however you hand
- * things to people; wiring up an email sender is one of the first things a real project
- * adds.
+ * Every route that issues a one-time link **sends it by email**, from inside the same
+ * transaction that issued it. `POST /users`, `POST /users/:id/invite` and
+ * `POST /users/:id/reset-password` additionally carry the token in their response — once,
+ * and only under `MAIL_DRIVER=log`, where nothing reached an inbox and the console dialog
+ * is the only way to hand somebody the link. See `revealTokens()`.
+ *
+ * Either way it cannot be read back from `GET /users`: what is stored is only the hash,
+ * exactly as with a session token.
  */
 
 const validationHook = (result: { success: boolean; error?: unknown }): void => {

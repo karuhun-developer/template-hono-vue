@@ -3,9 +3,11 @@ import { and, eq, inArray, isNull } from 'drizzle-orm'
 
 import { db, type DatabaseHandle } from '#db/client'
 import { roles as rolesTable, users } from '#db/schema'
+import { transaction } from '#db/tx'
 import { badRequest, conflict, forbidden, notFound } from '#lib/errors'
 import { hashPassword } from '#lib/password'
 import { issueToken } from '#lib/token'
+import { queueMail, revealTokens } from '#mail/outbox'
 import { diffFields, recordAudit, type AuditActor } from '#modules/audit/audit.repo'
 import { loadAccess, type AccessContext } from '#modules/rbac/rbac.repo'
 import { loadRolePermissions } from '#modules/roles/roles.repo'
@@ -51,15 +53,25 @@ const INVITE_TTL_HOURS = 72
 
 export type InviteResult = {
   user: UserWithRoles
-  /** Returned once, in this response only. What is stored is a hash of it. */
-  inviteToken: string
+  /**
+   * The link, for the caller — but only when nothing was really delivered.
+   *
+   * `revealTokens()` decides: under `MAIL_DRIVER=log` this is the token, once, and what is
+   * stored is only a hash of it; under any real transport it is `null`, because the person
+   * it belongs to has already been sent it.
+   *
+   * `string | null` rather than an optional field, deliberately. A key that comes and goes
+   * makes the response an anonymous union, and the console derives its types from this
+   * shape — one nullable field is a type it can hold, two shapes is not.
+   */
+  inviteToken: string | null
   inviteExpiresAt: Date
 }
 
 export type PasswordResetResult = {
   user: UserWithRoles
-  /** Same rule as `inviteToken`: this response, once, and never readable again. */
-  resetToken: string
+  /** Same rule as `inviteToken`, decided by the same `revealTokens()`. */
+  resetToken: string | null
   resetExpiresAt: Date
 }
 
@@ -178,7 +190,7 @@ export async function inviteUser(
 
   const invite = newInvite()
 
-  return db.transaction(async (tx) => {
+  return transaction(async (tx, defer) => {
     const [created] = await tx
       .insert(users)
       .values({
@@ -205,7 +217,20 @@ export async function inviteUser(
       after: { email: saved.email, name: saved.name, roles: describe(saved) },
     })
 
-    return { user: saved, inviteToken: invite.token, inviteExpiresAt: invite.expiresAt }
+    // Inside the transaction, so an invitation that rolls back — a duplicate address, a
+    // role that turned out not to exist — takes its email down with it. Nobody is invited
+    // to an account that was never created.
+    await queueMail(tx, defer, {
+      to: { email: saved.email, name: saved.name },
+      template: 'invitation',
+      payload: {
+        name: saved.name,
+        token: invite.token,
+        expiresAt: invite.expiresAt.toISOString(),
+      },
+    })
+
+    return { user: saved, inviteToken: reveal(invite.token), inviteExpiresAt: invite.expiresAt }
   })
 }
 
@@ -226,7 +251,7 @@ export async function resendInvite(actor: AuditActor, userId: string): Promise<I
 
   const invite = newInvite()
 
-  return db.transaction(async (tx) => {
+  return transaction(async (tx, defer) => {
     await tx
       .update(users)
       .set({
@@ -246,7 +271,17 @@ export async function resendInvite(actor: AuditActor, userId: string): Promise<I
     const saved = await findUser(tx, userId)
     if (!saved) throw new Error('the user could not be read back')
 
-    return { user: saved, inviteToken: invite.token, inviteExpiresAt: invite.expiresAt }
+    await queueMail(tx, defer, {
+      to: { email: saved.email, name: saved.name },
+      template: 'invitation',
+      payload: {
+        name: saved.name,
+        token: invite.token,
+        expiresAt: invite.expiresAt.toISOString(),
+      },
+    })
+
+    return { user: saved, inviteToken: reveal(invite.token), inviteExpiresAt: invite.expiresAt }
   })
 }
 
@@ -451,8 +486,9 @@ export async function restoreUser(actor: AuditActor, userId: string): Promise<Us
  * - **No cooldown.** It exists to stop an anonymous form being used as an email cannon.
  *   Whoever reaches this route is signed in, holds an owner-only permission, and is named
  *   in the audit entry — pressing the button twice is not an attack.
- * - **The token comes back in the response**, once, exactly as an invitation token does, so
- *   that an installation with no mailer can still hand somebody a link.
+ * - **The token can come back in the response**, once, exactly as an invitation token does —
+ *   but only under `MAIL_DRIVER=log`, where nothing was really delivered. See
+ *   `revealTokens()`.
  * - **The reasons are specific.** An invited or disabled account gets told which it is;
  *   there is nothing to leak to a caller who can already read the user list.
  */
@@ -474,7 +510,7 @@ export async function triggerPasswordReset(
 
   await assertNotStronger(access, userId)
 
-  return db.transaction(async (tx) => {
+  return transaction(async (tx, defer) => {
     const issued = await issueReset(tx, userId)
     // Only an account that is active and not deleted can be reset, and both were just
     // checked through `findUser`. Nothing else can make this null.
@@ -490,7 +526,21 @@ export async function triggerPasswordReset(
     const saved = await findUser(tx, userId)
     if (!saved) throw new Error('the user could not be read back')
 
-    return { user: saved, resetToken: issued.token, resetExpiresAt: issued.expiresAt }
+    // `triggeredByAdmin`, so the mail can say why it arrived. Somebody who did not ask for
+    // a reset needs to be able to tell "an administrator did this" from "somebody is trying
+    // to take my account", and those two need different closing sentences.
+    await queueMail(tx, defer, {
+      to: { email: saved.email, name: saved.name },
+      template: 'password-reset',
+      payload: {
+        name: saved.name,
+        token: issued.token,
+        expiresAt: issued.expiresAt.toISOString(),
+        triggeredByAdmin: true,
+      },
+    })
+
+    return { user: saved, resetToken: reveal(issued.token), resetExpiresAt: issued.expiresAt }
   })
 }
 
@@ -578,6 +628,17 @@ async function loadRoles(
   return new Map(
     rows.map((row) => [row.id, { ...row, permissions: permissions.get(row.id) ?? [] }]),
   )
+}
+
+/**
+ * The token for the caller, or nothing at all.
+ *
+ * One line, so that "when may a link be handed back" is answered in one place —
+ * `revealTokens()` — rather than in three call sites that can drift apart. The mail is
+ * queued either way; this only decides whether the response carries a second copy.
+ */
+function reveal(token: string): string | null {
+  return revealTokens() ? token : null
 }
 
 function newInvite(): { token: string; tokenHash: string; expiresAt: Date } {

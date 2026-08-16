@@ -36,6 +36,16 @@ await transaction(async (tx, defer) => {
 
 > **`#mail` and `#queue` do not import each other.** `mailer.ts` never enqueues and `outbox.ts` never sends; the two subsystems meet in exactly one file, `queue/jobs/mail.ts`. That is what keeps the cycle from forming, and both files say so at the top.
 
+### What gets sent today
+
+| Template         | From                                                        | Also returns the token?              |
+| ---------------- | ----------------------------------------------------------- | ------------------------------------ |
+| `invitation`     | `POST /users`, `POST /users/:id/invite`                     | Under `MAIL_DRIVER=log` only         |
+| `password-reset` | `POST /users/:id/reset-password` (`triggeredByAdmin: true`) | Under `MAIL_DRIVER=log` only         |
+| `password-reset` | `POST /auth/forgot-password`                                | **Never** — that is the whole attack |
+
+`revealTokens()` in `mail/outbox.ts` is the one place the first two are decided, so they cannot drift apart. The third is not its business: a self-service reset would be handing the link to whoever typed the address in.
+
 ## The outbox property
 
 The row is written inside the transaction. That buys the two halves of one guarantee:

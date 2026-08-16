@@ -11,6 +11,7 @@ import {
   createUser,
   emailFor,
   ensureCatalog,
+  lastMailTo,
   login,
   request,
 } from './support/world'
@@ -248,6 +249,19 @@ describe('POST /users', () => {
     // Only the hash is kept, so the list can never hand the token back out.
     const list = await request(app, '/users', { cookie: ownerCookie })
     expect(await list.text()).not.toContain(body.inviteToken)
+  })
+
+  /**
+   * The token is in the response **because** this suite runs on `MAIL_DRIVER=log`, where
+   * nothing reached an inbox. The email is queued either way, in the same transaction that
+   * created the account — and the copy it leaves behind is masked.
+   */
+  it('emails the invitation, and stores that copy with the link redacted', async () => {
+    const message = await lastMailTo(emailFor(TAG, 'joiner'))
+
+    expect(message?.template).toBe('invitation')
+    expect(message?.textBody).toContain('[redacted]')
+    expect(message?.textBody).not.toMatch(/inv_[\w-]+/)
   })
 
   it('refuses an address that is already in use', async () => {
@@ -699,6 +713,13 @@ describe('POST /users/:id/reset-password', () => {
 
     expect(row?.hash).toBeTruthy()
     expect(row?.hash).not.toBe(body.resetToken)
+
+    // And the person whose account it is hears about it, rather than only the person who
+    // pressed the button.
+    const message = await lastMailTo(MEMBER)
+    expect(message?.template).toBe('password-reset')
+    expect(message?.textBody).toContain('An administrator has started a password reset')
+    expect(message?.textBody).not.toContain(body.resetToken)
   })
 
   /**

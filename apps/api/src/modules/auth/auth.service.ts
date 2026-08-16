@@ -1,10 +1,10 @@
 import { db } from '#db/client'
-import { isProduction } from '#env'
+import { transaction } from '#db/tx'
 import { ApiError, notFound, unauthorized } from '#lib/errors'
-import { logger } from '#lib/logger'
 import { hashPassword, needsRehash, verifyDummyPassword, verifyPassword } from '#lib/password'
 import type { ClientInfo } from '#lib/request-info'
 import { looksLikeToken } from '#lib/token'
+import { queueMail } from '#mail/outbox'
 import { recordAudit, type AuditActor } from '#modules/audit/audit.repo'
 import { findUserByEmail, markUserLoggedIn } from '#platform/auth.repo'
 import { acceptInvite, findPendingInvite } from '#platform/invite.repo'
@@ -211,6 +211,13 @@ export type ResetPreview = {
  * - The audit entry is written **only when a token was really issued**. An entry for an
  *   address that does not exist would turn the audit log into the enumeration oracle the
  *   endpoint refuses to be — and it is read by exactly the people who could then use it.
+ * - **The mail is queued only then too**, for the same reason: a `mail_messages` row is
+ *   another record of who asked, readable by whoever holds `mail.read`.
+ *
+ * This is the one flow whose token can never come back in the response, whatever
+ * `MAIL_DRIVER` is — handing the link to whoever asked for it is the entire attack. The
+ * mail is the only channel, which is why `MAIL_DRIVER=log` still writes the link into the
+ * API log.
  *
  * There is deliberately no dummy argon2 pass here, unlike on the sign-in path. This does no
  * hashing on any path, so there is no timing gap to close.
@@ -219,9 +226,9 @@ export async function requestPasswordReset(address: string, actor: AuditActor): 
   const user = await findUserByEmail(address)
   if (!user) return
 
-  const issued = await db.transaction(async (tx) => {
+  await transaction(async (tx, defer) => {
     const reset = await issueReset(tx, user.id, { cooldownSeconds: RESET_COOLDOWN_SECONDS })
-    if (!reset) return null
+    if (!reset) return
 
     await recordAudit(tx, actor, {
       action: 'user.password_reset_request',
@@ -230,10 +237,17 @@ export async function requestPasswordReset(address: string, actor: AuditActor): 
       subjectLabel: user.email,
     })
 
-    return reset
+    await queueMail(tx, defer, {
+      to: { email: user.email, name: user.name },
+      template: 'password-reset',
+      payload: {
+        name: user.name,
+        token: reset.token,
+        expiresAt: reset.expiresAt.toISOString(),
+        triggeredByAdmin: false,
+      },
+    })
   })
-
-  if (issued) announceResetLink(user.email, issued.token)
 }
 
 export async function previewPasswordReset(token: string): Promise<ResetPreview> {
@@ -283,23 +297,4 @@ export async function resetPassword(
     session,
     principal: { id: userId, email: reset.email, name: reset.name },
   }
-}
-
-/**
- * Put the reset link where somebody can find it, for as long as there is no mailer.
- *
- * A self-service reset is the one flow whose token can never be returned in the response —
- * that would hand the link to whoever asked for it, which is the whole attack. Until the
- * mail subsystem lands, the log is the only channel there is.
- *
- * Guarded by `isProduction` and **temporary**: a live reset link in a log aggregator is a
- * live credential. This function goes when `queueMail()` takes over the send.
- */
-function announceResetLink(email: string, token: string): void {
-  if (isProduction) return
-
-  logger.info(
-    { email, resetToken: token },
-    'password reset requested — no mailer is configured, so the link is here',
-  )
 }
