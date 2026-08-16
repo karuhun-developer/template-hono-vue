@@ -152,6 +152,16 @@ Both routes select through `mailColumns`, including the detail one — the place
 
 `mail.read` is **owner-only** — a stricter bar than the rest of the Operations group, because what these two routes return is a copy of every message this application has sent, including the ones about whoever is asking.
 
+The list also answers with `templates`, the registry above. The console's template facet is that list rather than a second copy of it, since nothing in `apps/console` can import `TEMPLATES` and a hand-kept copy would drift the first time somebody adds one. The `template` filter itself still accepts any string: a message sent under a template since renamed is still a row, and usually the row somebody is looking for. **The facet offers what exists; the query accepts what existed.**
+
+## The console page
+
+**Operations → Mail log** renders the stored body, and it renders the HTML part in a sandboxed `<iframe srcdoc>` with `sandbox=""` — never `v-html`. The body is attacker-influenced: a user-supplied name lands in an invitation email, so pasting it into the console's own origin would be stored XSS in the one application whose users hold every permission there is. `sandbox=""` with no tokens means no scripts, no forms and an opaque origin; the frame can lay out text and nothing else. Adding `allow-scripts` to it undoes the whole thing.
+
+A banner above the body says the links in a stored copy are redacted. Without it, somebody comparing the log against the email they received would reasonably conclude the message went out broken.
+
+The preview re-reads `GET /mail-messages/:id` when it opens. Not for the body — the list already carries it — but for the status: a message that was `queued` when the page loaded may have been sent or failed since, and a preview is exactly where somebody looks to find that out.
+
 ## Settings
 
 | Variable              | Default                 | Notes                                                                     |

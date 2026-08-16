@@ -1,5 +1,5 @@
 import type { PermissionKey } from '@app/contract'
-import { LayoutDashboard, ListChecks, ScrollText, ShieldCheck, Users } from '@lucide/vue'
+import { LayoutDashboard, ListChecks, Mail, ScrollText, ShieldCheck, Users } from '@lucide/vue'
 import type { Component } from 'vue'
 
 /**
@@ -58,6 +58,9 @@ export const NAV_GROUPS: readonly NavGroup[] = [
    */
   {
     label: 'Operations',
-    items: [{ to: '/jobs', label: 'Jobs', icon: ListChecks, permission: 'job.read' }],
+    items: [
+      { to: '/jobs', label: 'Jobs', icon: ListChecks, permission: 'job.read' },
+      { to: '/mail-log', label: 'Mail log', icon: Mail, permission: 'mail.read' },
+    ],
   },
 ]

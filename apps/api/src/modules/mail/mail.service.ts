@@ -1,6 +1,7 @@
 import { db } from '#db/client'
 import { notFound } from '#lib/errors'
 import { findMailMessage, listMailMessages, type MailRecord } from '#mail/mail.repo'
+import { TEMPLATE_NAMES } from '#mail/templates'
 import type { ListMailQuery } from '#modules/mail/mail.schema'
 
 /**
@@ -23,6 +24,14 @@ export type MailListPage = {
   total: number
   page: number
   perPage: number
+  /**
+   * The registry, so the console's template facet is this list rather than a second copy of
+   * it. The filter itself still takes a bounded string, for the reason `mail.schema.ts`
+   * gives: a message sent under a template since renamed is still a row, and it is usually
+   * the row somebody is looking for. The facet offers what exists; the query accepts what
+   * existed.
+   */
+  templates: readonly string[]
 }
 
 export async function listMail(query: ListMailQuery): Promise<MailListPage> {
@@ -36,7 +45,13 @@ export async function listMail(query: ListMailQuery): Promise<MailListPage> {
     order: query.order,
   })
 
-  return { items: rows, total, page: query.page, perPage: query.perPage }
+  return {
+    items: rows,
+    total,
+    page: query.page,
+    perPage: query.perPage,
+    templates: TEMPLATE_NAMES,
+  }
 }
 
 export async function getMail(id: string): Promise<MailRecord> {

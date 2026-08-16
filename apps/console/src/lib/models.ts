@@ -20,6 +20,7 @@ import type { api } from '@/lib/api'
  * declared *here* is what belongs to no single module.
  */
 export type { JobStatus, JobSummary } from '@/features/jobs/api'
+export type { MailMessage, MailStatus } from '@/features/mail/api'
 export type { PermissionCatalog, RoleSummary } from '@/features/roles/api'
 export type { UserRoleRef, UserStatus, UserSummary } from '@/features/users/api'
 
