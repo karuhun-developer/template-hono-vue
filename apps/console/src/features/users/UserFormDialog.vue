@@ -39,10 +39,13 @@ import { useSessionStore } from '@/stores/session'
  * handing the account to a different person, and that should be a new invitation rather
  * than an edit.
  *
- * Which mode it opens in is `dialogMode()` in `api.ts`, so the branch that decides which
- * endpoint a submit reaches is a pure function with a test rather than a ternary in a
- * template. Whoever holds both keys gets the switch below; whoever holds one never sees it.
- * None of that refuses anything — `requirePermission()` on each route does.
+ * **The buttons are the choice.** Whoever holds both keys gets `Save` and `Send invitation`
+ * side by side in the footer, and pressing one is the whole decision — there is no mode to
+ * set first. A segmented control at the top used to do this, and it asked people to choose
+ * a mode before they knew what either mode meant; a footer button says what it does at the
+ * moment it is pressed. `offeredModes()` in `api.ts` decides which buttons exist, so the
+ * branch that picks an endpoint is a pure function with a test rather than a ternary in a
+ * template. None of that refuses anything — `requirePermission()` on each route does.
  *
  * It lives in `features/users/` rather than `components/` because it belongs to one module:
  * any screen that needs to invite, create or edit somebody imports it from here, and gets
@@ -63,30 +66,42 @@ const emit = defineEmits<{
 const session = useSessionStore()
 
 const modes = computed(() => offeredModes(props.user, session.can))
-const mode = ref<UserDialogMode>('invite')
+const editing = computed(() => props.user !== null)
+const canCreate = computed(() => modes.value.includes('create'))
+const canInvite = computed(() => modes.value.includes('invite'))
+
+/** Which button the Enter key presses. The rest are pressed by being pressed. */
+const primary = computed(() => dialogMode(props.user, session.can))
 
 const email = ref('')
 const name = ref('')
 const password = ref('')
 const roleIds = ref<string[]>([])
-const submitting = ref(false)
+/** Null unless a submit is in flight, and then the mode that started it — the spinner. */
+const pending = ref<UserDialogMode | null>(null)
+const submitting = computed(() => pending.value !== null)
 const failure = ref<ApiFailure | null>(null)
 
-const COPY: Record<UserDialogMode, { title: string; description: string; submit: string }> = {
-  invite: {
+const copy = computed(() => {
+  const user = props.user
+  if (user !== null) return { title: 'Edit user', description: user.email }
+  if (canCreate.value && canInvite.value) {
+    return {
+      title: 'Add someone',
+      description: 'Save creates the account now. Send an invitation lets them pick a password.',
+    }
+  }
+  if (canCreate.value) {
+    return {
+      title: 'Create an account',
+      description: 'The account is active straight away, with the password you set here.',
+    }
+  }
+  return {
     title: 'Invite someone',
     description: 'They will get a single-use link to choose their own password.',
-    submit: 'Send invitation',
-  },
-  create: {
-    title: 'Create an account',
-    description: 'The account is active straight away, with the password you set here.',
-    submit: 'Create account',
-  },
-  edit: { title: 'Edit user', description: '', submit: 'Save' },
-}
-
-const copy = computed(() => COPY[mode.value])
+  }
+})
 
 // Reset on open rather than on close: a dialog that clears itself while fading out shows
 // the fields emptying, and reopening is the only moment the values are actually needed.
@@ -96,8 +111,7 @@ watch(
     if (!open) return
 
     failure.value = null
-    submitting.value = false
-    mode.value = dialogMode(props.user, session.can)
+    pending.value = null
 
     const user = props.user
     email.value = user?.email ?? ''
@@ -126,7 +140,12 @@ function generate(): void {
   password.value = Array.from(bytes, (byte) => ALPHABET[byte & 63]).join('')
 }
 
-async function submit(): Promise<void> {
+/** Every button goes through here. Vue ignores a returned promise; this says so out loud. */
+function press(mode: UserDialogMode): void {
+  void submit(mode)
+}
+
+async function submit(mode: UserDialogMode): Promise<void> {
   if (submitting.value) return
 
   if (roleIds.value.length === 0) {
@@ -136,17 +155,18 @@ async function submit(): Promise<void> {
 
   // Checked here as well as in the API: "at least 8 characters" is a rule that can be
   // answered without a round trip. The API still enforces it — this is only politeness.
-  if (mode.value === 'create' && password.value.length < 8) {
-    failure.value = local('Use at least 8 characters for the password.')
+  // Only on the Save path: the field is on screen for both, and an invitation ignores it.
+  if (mode === 'create' && password.value.length < 8) {
+    failure.value = local('Use at least 8 characters for the password, or send an invitation.')
     return
   }
 
-  submitting.value = true
+  pending.value = mode
   failure.value = null
 
-  const result = await send()
+  const result = await send(mode)
 
-  submitting.value = false
+  pending.value = null
 
   if ('failure' in result) {
     failure.value = result.failure
@@ -158,12 +178,12 @@ async function submit(): Promise<void> {
 }
 
 /** The one place the mode turns into a route. Three endpoints, three permissions, one form. */
-function send(): Promise<ActionResult<UserSaved>> {
+function send(mode: UserDialogMode): Promise<ActionResult<UserSaved>> {
   const trimmed = { email: email.value.trim(), name: name.value.trim(), roleIds: roleIds.value }
   const user = props.user
 
   if (user !== null) return updateUser(user.id, { name: trimmed.name, roleIds: trimmed.roleIds })
-  if (mode.value === 'create') return createUser({ ...trimmed, password: password.value })
+  if (mode === 'create') return createUser({ ...trimmed, password: password.value })
   return inviteUser(trimmed)
 }
 
@@ -177,33 +197,11 @@ function local(message: string): ApiFailure {
     <DialogContent class="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>{{ copy.title }}</DialogTitle>
-        <DialogDescription>
-          <template v-if="mode === 'edit'">{{ user?.email }}</template>
-          <template v-else>{{ copy.description }}</template>
-        </DialogDescription>
+        <DialogDescription>{{ copy.description }}</DialogDescription>
       </DialogHeader>
 
-      <!--
-        Only for somebody holding both keys. With one, there is nothing to choose and a
-        switch with a single working half is a control that teaches the wrong thing.
-      -->
-      <div v-if="modes.length > 1" class="bg-muted flex gap-1 rounded-lg p-1">
-        <Button
-          v-for="option in modes"
-          :key="option"
-          type="button"
-          size="sm"
-          class="flex-1"
-          :variant="mode === option ? 'secondary' : 'ghost'"
-          :disabled="submitting"
-          @click="mode = option"
-        >
-          {{ option === 'invite' ? 'Send an invitation' : 'Set a password' }}
-        </Button>
-      </div>
-
-      <form class="space-y-4" novalidate @submit.prevent="submit">
-        <div v-if="mode !== 'edit'" class="space-y-2">
+      <form class="space-y-4" novalidate @submit.prevent="press(primary)">
+        <div v-if="!editing" class="space-y-2">
           <Label for="user-email">Email</Label>
           <Input
             id="user-email"
@@ -222,7 +220,11 @@ function local(message: string): ApiFailure {
           <Input id="user-name" v-model="name" autocomplete="off" required />
         </div>
 
-        <div v-if="mode === 'create'" class="space-y-2">
+        <!--
+          On screen for both buttons, not just for Save, because it is what tells somebody
+          that Save is even possible. An invitation ignores whatever is in it.
+        -->
+        <div v-if="!editing && canCreate" class="space-y-2">
           <Label for="user-password">Password</Label>
           <div class="flex gap-2">
             <!--
@@ -238,7 +240,6 @@ function local(message: string): ApiFailure {
               spellcheck="false"
               class="font-mono"
               minlength="8"
-              required
             />
             <Button type="button" variant="secondary" :disabled="submitting" @click="generate">
               <RefreshCw />
@@ -246,7 +247,8 @@ function local(message: string): ApiFailure {
             </Button>
           </div>
           <p class="text-muted-foreground text-xs">
-            At least 8 characters. Give it to them yourself — this is the only place it is shown.
+            At least 8 characters, and only used when you press Save. Give it to them yourself —
+            this is the only place it is shown.
           </p>
         </div>
 
@@ -254,6 +256,11 @@ function local(message: string): ApiFailure {
 
         <FailureAlert :failure="failure" />
 
+        <!--
+          One button per thing that can happen, and each one only for whoever holds the key
+          behind it. `type="button"` throughout: Enter is handled by the form, which presses
+          `primary` — so the keyboard reaches the same action as the rightmost button.
+        -->
         <DialogFooter>
           <Button
             type="button"
@@ -263,10 +270,28 @@ function local(message: string): ApiFailure {
           >
             Cancel
           </Button>
-          <Button type="submit" :disabled="submitting">
+
+          <Button v-if="editing" type="button" :disabled="submitting" @click="press('edit')">
             <LoaderCircle v-if="submitting" class="animate-spin" />
-            {{ copy.submit }}
+            Save
           </Button>
+
+          <template v-else>
+            <Button
+              v-if="canCreate"
+              type="button"
+              :variant="canInvite ? 'secondary' : 'default'"
+              :disabled="submitting"
+              @click="press('create')"
+            >
+              <LoaderCircle v-if="pending === 'create'" class="animate-spin" />
+              Save
+            </Button>
+            <Button v-if="canInvite" type="button" :disabled="submitting" @click="press('invite')">
+              <LoaderCircle v-if="pending === 'invite'" class="animate-spin" />
+              Send invitation
+            </Button>
+          </template>
         </DialogFooter>
       </form>
     </DialogContent>

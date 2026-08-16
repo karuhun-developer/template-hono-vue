@@ -163,7 +163,7 @@ const MODE_PERMISSION = {
  * The modes the caller may pick between, in the order they should be offered.
  *
  * An existing user is only ever edited. A new one can be invited, created outright, or —
- * for whoever holds both keys — either, which is what the dialog's switch is for.
+ * for whoever holds both keys — either, and the dialog puts one footer button behind each.
  */
 export function offeredModes(
   user: UserSummary | null,
@@ -174,10 +174,11 @@ export function offeredModes(
 }
 
 /**
- * Where the dialog opens.
+ * Which button the Enter key presses.
  *
  * Invite wins when both are held: the account nobody else has ever known the password of
- * is the better default, and creating one outright is the deliberate choice.
+ * is the better default, and choosing one for somebody is the deliberate act — it is the
+ * button you have to aim at.
  *
  * The fallback matters less than it looks — a caller holding neither key never sees the
  * button that opens this — but "invite" is the harmless half of the pair to land on.

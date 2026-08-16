@@ -36,11 +36,12 @@ describe('offeredModes', () => {
     expect(offeredModes(null, holding('user.create'))).toEqual(['create'])
   })
 
-  it('offers nothing to whoever holds neither, so the switch has nothing to show', () => {
+  it('offers nothing to whoever holds neither, so the footer is Cancel alone', () => {
     expect(offeredModes(null, holding())).toEqual([])
   })
 })
 
+/** Which button Enter presses — the others are pressed by being pressed. */
 describe('dialogMode', () => {
   it('edits an existing account whatever the caller holds', () => {
     expect(dialogMode(EXISTING, holding())).toBe('edit')
