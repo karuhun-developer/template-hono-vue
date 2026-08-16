@@ -1,6 +1,6 @@
 # Docker
 
-Compose runs **PostgreSQL only**. The Node processes run on the host, because hot reload through `tsx watch` and Vite is far nicer outside a container and there is nothing to gain from putting them in one during development.
+Compose runs **PostgreSQL by default**, with Redis and Mailpit behind profiles — nothing in the default configuration needs either. The Node processes run on the host, because hot reload through `tsx watch` and Vite is far nicer outside a container and there is nothing to gain from putting them in one during development.
 
 | File                                    | For                                                            |
 | --------------------------------------- | -------------------------------------------------------------- |
@@ -19,6 +19,8 @@ Compose runs **PostgreSQL only**. The Node processes run on the host, because ho
 | API      | 7300 |                                                             |
 | Console  | 7301 |                                                             |
 | Postgres | 7332 | A development machine usually already runs Postgres on 5432 |
+| Redis    | 7379 | Same reason, for 6379. Behind the `redis` profile           |
+| Mailpit  | 8025 | The inbox. SMTP is on 1025, and only in the dev overlay     |
 
 They are deliberately unusual so they do not collide with whatever else is on the machine. Every frontend sets `strictPort: true`, so a busy port fails loudly instead of silently moving — a moved port is no longer in `CORS_ORIGINS`, and the resulting preflight failure has no obvious cause.
 
@@ -26,6 +28,8 @@ They are deliberately unusual so they do not collide with whatever else is on th
 
 ```bash
 make up        # start and wait until healthy (--wait, so `make migrate` cannot race it)
+make up-redis  # the same, plus Redis on 7379
+make up-mail   # the same, plus Mailpit — SMTP 1025, inbox http://localhost:8025
 make down      # stop
 make ps        # status
 make logs      # follow

@@ -53,8 +53,12 @@ Inside `apps/api/src`:
 | `platform/`       | Repositories shared across modules (`session.repo.ts`, `auth.repo.ts`, `invite.repo.ts`) | The database     |
 | `queue/`          | Background work: the catalog, the drivers, the worker loop, the handlers                 | Its own table    |
 | `mail/`           | Templates, the outbox, the transports                                                    | Its own table    |
+| `scheduler/`      | The schedule registry, the tick, and the run rows that make a double fire impossible     | Its own table    |
+| `cache/`          | The facade, `remember()`, and the three drivers                                          | Its own table    |
 
-The last two are **subsystems** rather than modules: each owns a table, exposes a driver interface, runs outside a request, and never imports from `modules/`. A subsystem gets a `modules/<name>/` of its own only when it needs an HTTP face — the relationship `modules/jobs` has with `queue/`, and the one `modules/auth` already had with `platform/session.repo.ts`.
+The last four are **subsystems** rather than modules: each owns a table, exposes a driver interface, runs outside a request, and never imports from `modules/`. A subsystem gets a `modules/<name>/` of its own only when it needs an HTTP face — the relationship `modules/jobs`, `modules/mail` and `modules/schedules` have with the three above, and the one `modules/auth` already had with `platform/session.repo.ts`.
+
+Two entrypoints consume them: `src/index.ts` serves HTTP, and `src/worker.ts` claims jobs and ticks the schedules. They are separate processes for a reason worth stating — an API replica that also claimed jobs would multiply the workers every time the API was scaled out for traffic, which is the opposite of what more traffic asks for. `WORKER_IN_PROCESS` collapses them into one in development so `make dev` stays a single terminal.
 
 ## Request lifecycle
 
@@ -94,6 +98,42 @@ Two details in there are worth stating out loud.
 `sessionContext()` is mounted **globally and permissively**: it reads the cookie if there is one and says nothing if there is not. Health checks and invitation links carry no session and both must keep working. Turning somebody away is `requireAuth()`'s job, and it is mounted per router.
 
 The permissions are loaded **once**, in `requireAuth()`, not lazily inside each check. That is what lets `requirePermission()` stay synchronous and guarantees one query per request however many checks a route performs.
+
+## Outside a request
+
+The other half of the system has no `c`, no cookie and nobody waiting for it:
+
+```text
+  the clock                              a service, mid-transaction
+     │  every SCHEDULER_TICK_MS               │  enqueue(name, payload, { tx, defer })
+     ▼                                        ▼
+┌──────────────────────────┐          ┌────────────────────────────────────────────┐
+│ scheduler tick           │          │ prepareJob()   validate the payload · JSON  │
+│  previousRun(now)        │          │ dispatch()     tx if the driver can join it │
+│  INSERT schedule_runs    │─ owns ──▶│                defer if it cannot           │
+│  ON CONFLICT DO NOTHING  │  the tick└────────────────────────────────────────────┘
+└──────────────────────────┘                        │
+                                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ worker loop           claim (FOR UPDATE SKIP LOCKED) · run · record  │
+│    └── handler        (payload, ctx) → Promise<void>                 │
+│           ctx.logger · ctx.attempt · ctx.signal                      │
+└─────────────────────────────────────────────────────────────────────┘
+     │  succeeded                                failed
+     ▼                                              ▼
+  finished_at                          run_at = now() + backoff ± 20 %,
+                                       or `failed` at max_attempts — and kept
+```
+
+Three properties carry over from the request side, and one does not.
+
+**A change and its consequence commit together.** `enqueue(…, { tx, defer })` is the same shape as `recordAudit(tx, …)`: under the default `database` driver the job is inserted through the caller's transaction, so a rollback takes the job with it.
+
+**A schedule enqueues; it never runs work inline.** Retries, the failure record and the Jobs page all come for free that way, and the unique index on `(schedule_key, fired_for)` is what makes two replicas ticking the same instant produce exactly one run.
+
+**Logging is through `ctx.logger`**, already carrying the job and its id. `c.get('logger')` does not exist out here, which is the concrete reason a handler is a plain function taking `(payload, ctx)` rather than anything Hono-shaped.
+
+What does not carry over is **the enforcer**. There is no `AccessContext` in a worker and nothing to check one against: a job runs because something already authorised the change that enqueued it. A handler that needs to know who asked takes the id in its payload.
 
 ## The layers in detail
 
@@ -173,6 +213,8 @@ export const app = base
   .route('/roles', roleRoutes)
   .route('/audit-logs', auditRoutes)
   .route('/jobs', jobRoutes)
+  .route('/mail-messages', mailRoutes)
+  .route('/schedules', scheduleRoutes)
 
 export type AppType = typeof app
 ```

@@ -25,6 +25,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `{ items, total, page, perPage }`.
 - `GET /users?roleId=` filters by role.
 - `status`, `roleId`, `action` and `subjectType` may be given more than once and are read as a set.
+- **Mail.** Templates in TypeScript, a `mail_messages` outbox written inside the transaction that
+  caused it, and two drivers: `log` (the default — nothing to configure, the message is readable in
+  the console) and `smtp`. `queueMail(tx, defer, …)` is the only way to send. See
+  [`docs/features/mail.md`](docs/features/mail.md) and
+  [ADR-0005](docs/decisions/ADR-0005-transactional-outbox-for-mail.md).
+- Invitations and password resets are emailed. `inviteToken` and `resetToken` are still returned
+  under `MAIL_DRIVER=log`, and `null` as soon as a real transport is configured.
+- **A job queue** with three drivers — `database` (the default, and the only one whose enqueue joins
+  your transaction), `redis` (BullMQ), and `sync` — a `make worker` entrypoint, retries with
+  jittered backoff, dedupe keys, and stale-job reaping. See
+  [`docs/features/queue.md`](docs/features/queue.md),
+  [`docs/guides/add-a-job.md`](docs/guides/add-a-job.md) and
+  [ADR-0004](docs/decisions/ADR-0004-jobs-in-postgres-by-default.md).
+- **A scheduler.** Cron expressions in code, validated at boot, ticking in the worker only; a unique
+  index on `(schedule_key, fired_for)` makes two replicas produce exactly one run. The cleanups that
+  had been asking to be scheduled — sessions, invitations, resets — now are. See
+  [`docs/features/scheduler.md`](docs/features/scheduler.md).
+- **A cache** with `memory`, `database` and `redis` drivers, `remember()` with single-flight loading,
+  and prefix invalidation. Permission lookups can be cached behind `CACHE_ACCESS_PERMISSIONS`, which
+  is off by default. See [`docs/features/cache.md`](docs/features/cache.md).
+- Users can be created directly with a password, soft-deleted and restored; `GET /users/:id` and
+  `?includeDeleted=true` come with it. New owner-only keys: `user.create`, `user.delete`,
+  `user.reset_password`.
+- Password reset: `POST /auth/forgot-password`, `GET /auth/password-reset/:token`,
+  `POST /auth/reset-password`, and `POST /users/:id/reset-password` for an administrator. Resetting
+  revokes every other session.
+- Console: **Jobs**, **Mail log** and **Scheduled jobs** under a new Operations group, visible only to
+  an account holding the owner-only keys behind them.
+- `GET /health/ready` reports a `queue` check beside `database`, and names both in `checks`.
+- `transaction(fn(tx, defer))` — post-commit side effects that cannot be run for a change that
+  rolled back — and a shutdown registry both entrypoints share.
 
 ### Changed
 
@@ -32,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is `NAV_GROUPS` rather than a flat `NAV_ITEMS`.
 - The user, role and audit-log pages are data tables rather than stacks of cards.
 - Signing in and accepting an invitation share a split-screen `AuthLayout`.
+- A console list page gets its state from `useResourceList` — one debounce, one coalesced request,
+  and a stale-response guard — and a module's table, dialogs and API calls live in
+  `features/<module>/`. `lib/models.ts` is a re-export barrel over them, so existing imports still
+  compile.
 
 ### Deprecated
 

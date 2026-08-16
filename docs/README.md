@@ -4,32 +4,37 @@ Start with [`architecture.md`](architecture.md). Everything else assumes it.
 
 ## The map
 
-| Document                                                                                           | Read it when                                                 |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| [`architecture.md`](architecture.md)                                                               | Before writing any code in this repository                   |
-| [`conventions.md`](conventions.md)                                                                 | Before your first commit                                     |
-| **Features** — what already exists                                                                 |                                                              |
-| [`features/auth.md`](features/auth.md)                                                             | Touching sign-in, sessions, cookies or invitations           |
-| [`features/rbac.md`](features/rbac.md)                                                             | Adding a permission, or wondering why a checkbox is disabled |
-| [`features/users.md`](features/users.md)                                                           | Changing the user lifecycle                                  |
-| [`features/audit-log.md`](features/audit-log.md)                                                   | Recording an action, or reading the trail                    |
-| [`features/database.md`](features/database.md)                                                     | Adding a table or a column, and generating the migration     |
-| [`features/queue.md`](features/queue.md)                                                           | Moving work off a request, or reading the Jobs page          |
-| [`features/mail.md`](features/mail.md)                                                             | Sending an email, or adding a template                       |
-| [`features/console-shell.md`](features/console-shell.md)                                           | Adding a page or a navigation item                           |
-| [`features/data-table.md`](features/data-table.md)                                                 | Building any list screen                                     |
-| [`features/theming.md`](features/theming.md)                                                       | Adding a colour, or changing the brand                       |
-| [`features/code-quality.md`](features/code-quality.md)                                             | The gate rejected something and you want to know which part  |
-| [`features/docker.md`](features/docker.md)                                                         | Adding a service, or packaging for production                |
-| **Guides** — how to extend                                                                         |                                                              |
-| [`guides/add-frontend-app.md`](guides/add-frontend-app.md)                                         | Adding a second Vue app (a storefront, a customer portal)    |
-| [`guides/add-api-module.md`](guides/add-api-module.md)                                             | Adding an endpoint, a table or a permission                  |
-| [`guides/add-multi-tenancy.md`](guides/add-multi-tenancy.md)                                       | One installation has to serve several organisations          |
-| [`guides/rename-template.md`](guides/rename-template.md)                                           | This has just become your project rather than a template     |
-| **Decisions** — why                                                                                |                                                              |
-| [`decisions/ADR-0001-session-cookies-over-jwt.md`](decisions/ADR-0001-session-cookies-over-jwt.md) | Someone proposes JWTs                                        |
-| [`decisions/ADR-0002-rpc-types-over-openapi.md`](decisions/ADR-0002-rpc-types-over-openapi.md)     | Someone proposes generating a client                         |
-| [`decisions/ADR-0003-single-tenant-core.md`](decisions/ADR-0003-single-tenant-core.md)             | Someone asks where the `tenant_id` went                      |
+| Document                                                                                                     | Read it when                                                 |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| [`architecture.md`](architecture.md)                                                                         | Before writing any code in this repository                   |
+| [`conventions.md`](conventions.md)                                                                           | Before your first commit                                     |
+| **Features** — what already exists                                                                           |                                                              |
+| [`features/auth.md`](features/auth.md)                                                                       | Touching sign-in, sessions, cookies or invitations           |
+| [`features/rbac.md`](features/rbac.md)                                                                       | Adding a permission, or wondering why a checkbox is disabled |
+| [`features/users.md`](features/users.md)                                                                     | Changing the user lifecycle                                  |
+| [`features/audit-log.md`](features/audit-log.md)                                                             | Recording an action, or reading the trail                    |
+| [`features/database.md`](features/database.md)                                                               | Adding a table or a column, and generating the migration     |
+| [`features/queue.md`](features/queue.md)                                                                     | Moving work off a request, or reading the Jobs page          |
+| [`features/scheduler.md`](features/scheduler.md)                                                             | Something has to happen every night, or every five minutes   |
+| [`features/mail.md`](features/mail.md)                                                                       | Sending an email, or adding a template                       |
+| [`features/cache.md`](features/cache.md)                                                                     | Caching a value, and working out how it gets invalidated     |
+| [`features/console-shell.md`](features/console-shell.md)                                                     | Adding a page or a navigation item                           |
+| [`features/data-table.md`](features/data-table.md)                                                           | Building any list screen                                     |
+| [`features/theming.md`](features/theming.md)                                                                 | Adding a colour, or changing the brand                       |
+| [`features/code-quality.md`](features/code-quality.md)                                                       | The gate rejected something and you want to know which part  |
+| [`features/docker.md`](features/docker.md)                                                                   | Adding a service, or packaging for production                |
+| **Guides** — how to extend                                                                                   |                                                              |
+| [`guides/add-frontend-app.md`](guides/add-frontend-app.md)                                                   | Adding a second Vue app (a storefront, a customer portal)    |
+| [`guides/add-api-module.md`](guides/add-api-module.md)                                                       | Adding an endpoint, a table or a permission                  |
+| [`guides/add-a-job.md`](guides/add-a-job.md)                                                                 | Moving work into the background, or scheduling it            |
+| [`guides/add-multi-tenancy.md`](guides/add-multi-tenancy.md)                                                 | One installation has to serve several organisations          |
+| [`guides/rename-template.md`](guides/rename-template.md)                                                     | This has just become your project rather than a template     |
+| **Decisions** — why                                                                                          |                                                              |
+| [`decisions/ADR-0001-session-cookies-over-jwt.md`](decisions/ADR-0001-session-cookies-over-jwt.md)           | Someone proposes JWTs                                        |
+| [`decisions/ADR-0002-rpc-types-over-openapi.md`](decisions/ADR-0002-rpc-types-over-openapi.md)               | Someone proposes generating a client                         |
+| [`decisions/ADR-0003-single-tenant-core.md`](decisions/ADR-0003-single-tenant-core.md)                       | Someone asks where the `tenant_id` went                      |
+| [`decisions/ADR-0004-jobs-in-postgres-by-default.md`](decisions/ADR-0004-jobs-in-postgres-by-default.md)     | Someone proposes making Redis a requirement                  |
+| [`decisions/ADR-0005-transactional-outbox-for-mail.md`](decisions/ADR-0005-transactional-outbox-for-mail.md) | Someone proposes sending an email from a service             |
 
 ## What goes where
 

@@ -2,7 +2,7 @@
 
 Read this before writing code. It is short on purpose; the reasoning lives in `docs/`.
 
-**Project:** Hono + Vue Template — a pnpm monorepo starter. A Hono + Drizzle + PostgreSQL API, a Vue 3 back-office console, session authentication, RBAC, user management and an audit log. Nothing else, deliberately.
+**Project:** Hono + Vue Template — a pnpm monorepo starter. A Hono + Drizzle + PostgreSQL API, a Vue 3 back-office console, session authentication, RBAC, user management, an audit log, and four subsystems that run on the database you already have: mail, a job queue, a scheduler and a cache. Nothing else, deliberately.
 
 **Start here:** [`docs/architecture.md`](docs/architecture.md). Everything else assumes it.
 
@@ -28,37 +28,46 @@ docs/           architecture · conventions · features/ · guides/ · decisions
 
 Inside `apps/api/src`: `modules/<name>/` holds `*.routes.ts` (validate), `*.service.ts` (decide), `*.repo.ts` (query), `*.schema.ts` (Zod). Never let a layer skip the one below it.
 
+`queue/`, `mail/`, `scheduler/` and `cache/` are **subsystems**, not modules: each owns a table, exposes a driver interface, runs outside a request, and never imports from `modules/`. A subsystem gets a `modules/<name>/` of its own only when it needs an HTTP face — the relationship `modules/jobs` has with `queue/`.
+
 ## Commands
 
 ```bash
 make setup          # .env + pnpm install
 make up             # Postgres (port 7332), waits until healthy
+make up-redis       # Postgres + Redis (7379), for QUEUE_DRIVER=redis or CACHE_DRIVER=redis
+make up-mail        # Postgres + Mailpit (SMTP 1025, inbox :8025), for MAIL_DRIVER=smtp
 make migrate        # apply migrations
 make seed           # idempotent: permissions, system roles, the owner account
-make dev            # api :7300 · console :7301
+make dev            # api :7300 · console :7301, worker in-process
+make worker         # the worker on its own, when WORKER_IN_PROCESS is off
 make check          # format:check → typecheck → lint → test
 make generate name=add_settings   # a new migration
 ```
 
-`make test` needs `make up` first. If Postgres is down the suite **fails with instructions** — it never skips.
+`make test` needs `make up` first, and the redis driver suite needs `make up-redis`. If either is down the suite **fails with instructions** — it never skips.
 
 ## Where things go
 
-| You are about to                          | Read first                                                                                      |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Add an endpoint, a table, a permission    | [`docs/guides/add-api-module.md`](docs/guides/add-api-module.md)                                |
-| Change the schema or write a migration    | [`docs/features/database.md`](docs/features/database.md)                                        |
-| Add a second Vue app                      | [`docs/guides/add-frontend-app.md`](docs/guides/add-frontend-app.md)                            |
-| Add `tenant_id` to anything               | [`docs/guides/add-multi-tenancy.md`](docs/guides/add-multi-tenancy.md) — and read it to the end |
-| Touch sessions, cookies or invitations    | [`docs/features/auth.md`](docs/features/auth.md)                                                |
-| Touch roles or permission checks          | [`docs/features/rbac.md`](docs/features/rbac.md)                                                |
-| Touch the audit trail                     | [`docs/features/audit-log.md`](docs/features/audit-log.md)                                      |
-| Add a console page or route               | [`docs/features/console-shell.md`](docs/features/console-shell.md)                              |
-| Build a list screen                       | [`docs/features/data-table.md`](docs/features/data-table.md) — never hand-roll a second table   |
-| Decide where a `.vue` file goes           | [`docs/features/console-shell.md`](docs/features/console-shell.md) — "Where a file goes"        |
-| Add a colour, or change the brand         | [`docs/features/theming.md`](docs/features/theming.md) — tokens only, in both palettes          |
-| Change lint, types, tests or CI           | [`docs/features/code-quality.md`](docs/features/code-quality.md)                                |
-| Argue for JWTs, OpenAPI, or multi-tenancy | [`docs/decisions/`](docs/decisions/) — the ADR may already answer you                           |
+| You are about to                          | Read first                                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Add an endpoint, a table, a permission    | [`docs/guides/add-api-module.md`](docs/guides/add-api-module.md)                                       |
+| Change the schema or write a migration    | [`docs/features/database.md`](docs/features/database.md)                                               |
+| Add a second Vue app                      | [`docs/guides/add-frontend-app.md`](docs/guides/add-frontend-app.md)                                   |
+| Add `tenant_id` to anything               | [`docs/guides/add-multi-tenancy.md`](docs/guides/add-multi-tenancy.md) — and read it to the end        |
+| Touch sessions, cookies or invitations    | [`docs/features/auth.md`](docs/features/auth.md)                                                       |
+| Touch roles or permission checks          | [`docs/features/rbac.md`](docs/features/rbac.md)                                                       |
+| Touch the audit trail                     | [`docs/features/audit-log.md`](docs/features/audit-log.md)                                             |
+| Send an email                             | [`docs/features/mail.md`](docs/features/mail.md) — `queueMail(tx, defer, …)`, never `mailer`           |
+| Move work off a request                   | [`docs/guides/add-a-job.md`](docs/guides/add-a-job.md)                                                 |
+| Make something run every night            | [`docs/features/scheduler.md`](docs/features/scheduler.md) — a schedule enqueues, never runs           |
+| Cache a value                             | [`docs/features/cache.md`](docs/features/cache.md) — and write the invalidation first                  |
+| Add a console page or route               | [`docs/features/console-shell.md`](docs/features/console-shell.md)                                     |
+| Add a console list page                   | [`docs/features/data-table.md`](docs/features/data-table.md) — `useResourceList`, never a second table |
+| Decide where a `.vue` file goes           | [`docs/features/console-shell.md`](docs/features/console-shell.md) — "Where a file goes"               |
+| Add a colour, or change the brand         | [`docs/features/theming.md`](docs/features/theming.md) — tokens only, in both palettes                 |
+| Change lint, types, tests or CI           | [`docs/features/code-quality.md`](docs/features/code-quality.md)                                       |
+| Argue for JWTs, OpenAPI, or multi-tenancy | [`docs/decisions/`](docs/decisions/) — the ADR may already answer you                                  |
 
 ## Code style
 
