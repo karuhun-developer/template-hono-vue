@@ -177,6 +177,10 @@ export function createDatabaseQueue(options: DatabaseQueueOptions = {}): Databas
       }
     },
 
+    // The transport is the pool the readiness route has already pinged. Asking it a second
+    // time would turn one Postgres outage into two failing checks and no extra information.
+    ping: () => Promise.resolve(true),
+
     start: () => {
       if (running) return
       running = true

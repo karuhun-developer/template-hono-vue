@@ -245,6 +245,22 @@ A row still `running` with a `locked_at` older than `QUEUE_STALE_AFTER_MINUTES` 
 a worker that died — a live one finishes or fails in seconds. `reap()` puts it back to
 `pending`, keeping the attempt it already spent.
 
+## Readiness
+
+`GET /health/ready` reports a `queue` check beside the `database` one, and it answers a
+narrow question: **can this instance still hand a job over?** Not whether anything is draining
+them — that is a property of the fleet, and the Jobs page is where you ask it.
+
+`sync` and `database` answer `true` without asking anything. There is either no transport at
+all, or it is the pool the same route has already pinged, and a second query would report one
+Postgres outage as two failing checks. `redis` is the driver with a dependency of its own, and
+its check is a real `PING` — opening the connection if nothing has enqueued yet, because an
+instance that has never reached Redis is exactly the one the answer matters for.
+
+It is bounded at two seconds, and that is the interesting part rather than a detail: with
+Redis down, ioredis queues the command and retries, so the reply can arrive minutes after the
+orchestrator gave up. The timeout is the answer.
+
 ## Running the worker
 
 ```bash

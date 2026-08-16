@@ -19,6 +19,7 @@ function fakeDriver(kind: QueueDriver['kind']): FakeDriver {
     starts: 0,
     stops: [],
     push: () => Promise.resolve(),
+    ping: () => Promise.resolve(true),
     start: () => {
       driver.starts += 1
     },

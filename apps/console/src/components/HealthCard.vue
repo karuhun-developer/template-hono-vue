@@ -53,10 +53,18 @@ async function checkReadiness(): Promise<void> {
     const body = await response.json()
     // `response.ok` is deliberately ignored: a 503 here is a valid answer ("alive but not
     // able to serve"), not a failed request.
-    readiness.value = {
-      kind: body.checks.database ? 'up' : 'down',
-      detail: body.checks.database ? 'the database answered' : 'the database did not answer',
-    }
+    //
+    // Read out of `checks` rather than naming them, so a check added to the route shows up
+    // here without a second edit — and, more to the point, a check that starts failing is
+    // never silently left out of the sentence.
+    const failed = Object.entries(body.checks)
+      .filter(([, ok]) => !ok)
+      .map(([name]) => name)
+
+    readiness.value =
+      failed.length === 0
+        ? { kind: 'up', detail: `${Object.keys(body.checks).join(' · ')} answered` }
+        : { kind: 'down', detail: `${failed.join(' · ')} did not answer` }
   } catch (error) {
     readiness.value = {
       kind: 'down',

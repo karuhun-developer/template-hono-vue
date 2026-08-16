@@ -65,6 +65,9 @@ export function createSyncQueue(options: SyncQueueOptions = {}): QueueDriver {
     kind: 'sync',
     transactional: false,
     push,
+    // There is no transport. If the process is answering the probe at all, it can run a
+    // handler inline.
+    ping: () => Promise.resolve(true),
     start: () => {},
     stop: () => Promise.resolve(),
   }

@@ -69,6 +69,13 @@ export type RedisQueue = QueueDriver & {
  * keys, and a substitution that mapped them onto the same id would drop a real job as a
  * duplicate roughly never, which is the worst frequency for a bug to have.
  */
+/**
+ * How long a readiness check waits for Redis. Not configurable: a probe an orchestrator is
+ * timing out at five or ten seconds needs an answer well inside that, and "how long before
+ * we call it down" is the orchestrator's setting rather than ours.
+ */
+const PING_TIMEOUT_MS = 2000
+
 function toJobId(dedupeKey: string): string {
   return dedupeKey.replaceAll('%', '%25').replaceAll(':', '%3A')
 }
@@ -111,6 +118,8 @@ export function createRedisQueue(options: RedisQueueOptions = {}): RedisQueue {
 
   let queuePromise: Promise<BullQueue> | null = null
   let workerPromise: Promise<BullWorker> | null = null
+  /** The queue's own connection, kept so the readiness check has something to `PING`. */
+  let queueClient: Redis | null = null
 
   const loadBullmq = once(() => import('bullmq'))
 
@@ -144,6 +153,7 @@ export function createRedisQueue(options: RedisQueueOptions = {}): RedisQueue {
   const getQueue = (): Promise<BullQueue> => {
     queuePromise ??= (async () => {
       const [{ Queue }, connection] = await Promise.all([loadBullmq(), connect('queue')])
+      queueClient = connection
 
       return new Queue(queueName, {
         connection,
@@ -295,6 +305,37 @@ export function createRedisQueue(options: RedisQueueOptions = {}): RedisQueue {
       })
     },
 
+    /**
+     * `PING`, bounded.
+     *
+     * It opens the connection if nothing has enqueued yet, deliberately: a check that only
+     * looked at a connection somebody else had already made would report "ready" on an
+     * instance that has never once reached Redis, which is the instance the answer matters
+     * for.
+     *
+     * The race is not decoration. With Redis down, ioredis queues the command and retries —
+     * the reply arrives when the server comes back, which may be minutes after the
+     * orchestrator gave up on the probe. So the timeout is the answer, and the rejection
+     * that follows is caught rather than left to become an unhandled one.
+     */
+    ping: async () => {
+      try {
+        await getQueue()
+        if (!queueClient) return false
+
+        return await Promise.race([
+          queueClient.ping().then(
+            () => true,
+            () => false,
+          ),
+          expire(PING_TIMEOUT_MS),
+        ])
+      } catch (err) {
+        logger.error({ err }, 'the redis queue did not answer a health check')
+        return false
+      }
+    },
+
     start: () => {
       if (workerPromise) return
 
@@ -332,6 +373,7 @@ export function createRedisQueue(options: RedisQueueOptions = {}): RedisQueue {
 
       const openQueue = queuePromise
       queuePromise = null
+      queueClient = null
       if (openQueue) {
         await openQueue.then(
           (queue) => queue.close(),

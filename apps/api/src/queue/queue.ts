@@ -48,6 +48,21 @@ export type QueueDriver = {
   /** True only when `push` can join the caller's Postgres transaction. */
   readonly transactional: boolean
   push: (job: QueuedJob, tx?: Transaction) => Promise<void>
+  /**
+   * Can this process still hand a job over? For `GET /health/ready`, and nowhere else.
+   *
+   * It answers a question about **enqueueing**, not about work getting done: an API replica
+   * that can reach the transport is ready to serve requests whether or not a worker
+   * anywhere is draining them. "Is anything running my jobs" is the Jobs page's question.
+   *
+   * A driver whose transport is Postgres answers `true` without asking anything, because
+   * the pool it would ask is the one the readiness route has already pinged — a second
+   * query would report one outage as two problems. Only `redis` has a dependency of its own
+   * to check, which is the entire reason this exists.
+   *
+   * Never rejects, and never hangs: the caller is a probe an orchestrator is timing.
+   */
+  ping: () => Promise<boolean>
   /** Begin claiming work. Called by the worker, never by the API. */
   start: () => void
   /**

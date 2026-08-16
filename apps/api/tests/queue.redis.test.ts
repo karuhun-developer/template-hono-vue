@@ -222,4 +222,26 @@ describe('the redis driver', () => {
   it('is not transactional, so an enqueue is never tied to a commit', () => {
     expect(queueFor().transactional).toBe(false)
   })
+
+  /**
+   * The readiness check, on the one driver that has anything of its own to check. It opens
+   * the connection itself — an instance that has never enqueued anything is exactly the one
+   * `GET /health/ready` is being asked about.
+   */
+  it('answers a health check without having been started or pushed to', async () => {
+    await expect(queueFor().ping()).resolves.toBe(true)
+  })
+
+  it('answers false rather than hanging when there is no server on the port', async () => {
+    // Port 1 is reserved and nothing listens on it. Bounded by `PING_TIMEOUT_MS`, which is
+    // the whole point: a probe an orchestrator is timing must not wait for ioredis to
+    // exhaust its retries.
+    const unreachable = createRedisQueue({ catalog: CATALOG, url: 'redis://127.0.0.1:1' })
+
+    await expect(unreachable.ping()).resolves.toBe(false)
+
+    // Not through `open`: that teardown obliterates the queue first, which is a command to
+    // a server that is not there. Closing is bounded here for the same reason the ping is.
+    await Promise.race([unreachable.stop(), sleep(500)])
+  }, 10_000)
 })

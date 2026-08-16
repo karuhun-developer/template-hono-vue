@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { pingDatabase } from '#db/client'
 import { env } from '#env'
 import type { AppBindings } from '#middleware/request-context'
+import { queue } from '#queue/queue'
 
 const startedAt = Date.now()
 
@@ -34,18 +35,36 @@ export const healthRoutes = new Hono<AppBindings>()
     })
   })
   .get('/ready', async (c) => {
-    const database = await pingDatabase().catch((err: unknown) => {
-      c.get('logger').error({ err }, 'health: the database did not answer')
-      return false
-    })
+    /**
+     * Both at once, because they are independent and a probe is being timed. The queue check
+     * asks whether this instance can still **hand a job over** — not whether anything is
+     * draining them, which is a question about the fleet rather than about this replica.
+     *
+     * Under the `sync` and `database` drivers it is `true` by construction: there is either
+     * no transport at all, or it is the pool the line above just pinged. Only `redis` has a
+     * dependency of its own here, and before this check an instance that could not reach it
+     * would have gone on reporting itself ready while every enqueue failed.
+     */
+    const [database, queueReady] = await Promise.all([
+      pingDatabase().catch((err: unknown) => {
+        c.get('logger').error({ err }, 'health: the database did not answer')
+        return false
+      }),
+      queue.ping().catch((err: unknown) => {
+        c.get('logger').error({ err }, 'health: the queue did not answer')
+        return false
+      }),
+    ])
+
+    const ready = database && queueReady
 
     return c.json(
       {
-        status: database ? ('ready' as const) : ('degraded' as const),
-        checks: { database },
+        status: ready ? ('ready' as const) : ('degraded' as const),
+        checks: { database, queue: queueReady },
         uptimeSeconds: uptimeSeconds(),
         time: new Date().toISOString(),
       },
-      database ? 200 : 503,
+      ready ? 200 : 503,
     )
   })

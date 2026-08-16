@@ -87,7 +87,7 @@ CMD ["pnpm", "--filter", "@app/api", "start"]
 Three things to get right whatever you build:
 
 - **Migrations are a separate step**, not part of the container's start command. Two replicas booting at once must not both migrate.
-- **`GET /health/ready` is your readiness probe** — it checks the database. `GET /health` is liveness and touches nothing.
+- **`GET /health/ready` is your readiness probe** — it checks the database and the queue, and names both in `checks`. `GET /health` is liveness and touches nothing. The queue check asks whether this instance can still hand a job over, not whether a worker is draining them; under `QUEUE_DRIVER=sync` and `database` it is true by construction, and only `redis` has a dependency of its own to reach.
 - **The frontends are static files.** `pnpm --filter @app/console build` produces `dist/`; serve it from nginx, a CDN, or anything else. It does not need Node at runtime.
 
 ## Redis
